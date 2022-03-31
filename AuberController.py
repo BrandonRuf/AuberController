@@ -416,28 +416,10 @@ class auber_syl53x2p(serial_gui_base):
         self.number_setpoint = self.grid_mid.add(_g.NumberBox(
             -273.16, bounds=(-273.16, temperature_limit), suffix='°C',
             signal_changed=self._number_setpoint_changed
-            )).set_width(175).set_style(style_big)
+            )).set_width(175).set_style(style_big).disable()
         
         self.label_temperature_status = self.grid_mid.add(_g.Label(
             ''), column = 2, row_span=2).set_style(style_big)
-        '''
-        self.grid_mid2.new_autorow()
-        
-        self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
-        self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
-        
-        self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-        
-        self.grid_mid2.new_autorow()
-        
-        self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: plum')
-        self.program_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: plum').disable()
-        
-        self.grid_mid2.add(_g.Label('Remaining Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-        
-        self.grid_mid2.new_autorow()'''
         
         ## Add mode buttons to GUI (open and closed loop control modes)
         self.grid_mode.add(_g.Label('Mode:')).set_style('color: azure')
@@ -550,8 +532,10 @@ class auber_syl53x2p(serial_gui_base):
         if self.button_multi.is_checked(): self.button_multi.click()
         
         if self.button_single.is_checked():
+            self.number_setpoint.enable()
             self.button_single.set_colors(text = 'white',background='red')
         else:
+            self.number_setpoint.disable()
             self.button_single.set_colors(text = "",background="")
     
     def _number_setpoint_changed(self, *a):
@@ -619,5 +603,5 @@ class auber_syl53x2p(serial_gui_base):
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
-    self = auber_syl53x2p(temperature_limit = 400)
+    self = auber_syl53x2p(name = "Oven Controller #1",temperature_limit = 400)
 
