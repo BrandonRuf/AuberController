@@ -444,11 +444,11 @@ class auber_syl53x2p(serial_gui_base):
         
         # Open loop (manual) control mode activation button
         self.button_single  = self.grid_mode.add(_g.Button('Single Setpoint' ,checkable=True, tip='Enable manual temperature control.')).disable()
-        #self.button_open_loop.signal_toggled.connect(self._button_open_loop_toggled)
+        self.button_single.signal_toggled.connect(self._button_single_setpoint_toggled)
         
         # Closed loop control mode activation button
-        self.button_program = self.grid_mode.add(_g.Button('Program',checkable=True, tip='Enable PID temperature control.')).disable()
-        self.button_program.signal_toggled.connect(self._button_program_toggled)
+        self.button_multi = self.grid_mode.add(_g.Button('Multi Setpoint',checkable=True, tip='Enable PID temperature control.')).disable()
+        self.button_multi.signal_toggled.connect(self._button_multi_toggled)
         
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
         
@@ -488,13 +488,13 @@ class auber_syl53x2p(serial_gui_base):
         
         for i in range(10):
             self.program[i] = dict()      
-            self.tab_program.add(_g.Label('Setpoint %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: mediumspringgreen')
-            self.tab_program.add(_g.Label('Operation:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["None","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.tab_program.add(_g.Label('Operation %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: mediumspringgreen')
+            #self.tab_program.add(_g.Label('Operation:'),alignment=1).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["None","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: mediumspringgreen')
             self.tab_program.add(_g.Label('Temperature:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: cyan')
             self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: plum')
-            self.program[i]['time']        = self.tab_program.add(_g.NumberBox(2, bounds=(0,1000), suffix='h'),alignment=1).set_width(75).set_style('font-size: 12pt; font-weight: bold; color: plum')
+            self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.program[i]['time']        = self.tab_program.add(_g.NumberBox(2.50, bounds=(0,1000.), suffix='h'),alignment=1).set_width(75).set_style('font-size: 12pt; font-weight: bold; color: gold')
             self.tab_program.new_autorow()
             self.tab_program.set_row_stretch(row=i+1,stretch=0)
             
@@ -505,44 +505,55 @@ class auber_syl53x2p(serial_gui_base):
     def _button_run_toggled(self):
         self.button_run.set_colors(background="mediumspringgreen")
 
-    def _button_program_toggled(self):
+    def _button_multi_toggled(self):
         
-        if(self.program_mode == False):
-            #self.grid_mid2.new_autorow()
-            
-            style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
-            style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
-            style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
-            
-            self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
-            self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
-            
-            self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-            self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-            
-            self.grid_mid2.new_autorow()
-            
-            self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: plum')
-            self.program_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: plum').disable()
-            
-            self.grid_mid2.add(_g.Label('Remaining Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-            self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-            
-            self.grid_mid2.new_autorow()
-            
+        if self.button_single.is_checked(): self.button_single.click()
+        
+        if self.button_multi.is_checked():
+        
+            if(self.program_mode == False):
+                #self.grid_mid2.new_autorow()
+                
+                style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
+                style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
+                style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
+                
+                #self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
+                #self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
+                
+                self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: mediumspringgreen')
+                self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: mediumspringgreen').disable()
+                
+                #self.grid_mid2.new_autorow()
+                
+                self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
+                self.program_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+                
+                self.grid_mid2.add(_g.Label('Remaining Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
+                self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+                
+                self.program_mode = True
+                
+                # Bring the hidden program tab into the GUI
+                self.tabs.unpop_tab(1)
+                
             self.tab_program.enable()
-            self.button_program.set_colors(text = 'white',background='limegreen')
-            
-            self.program_mode = True
-        self.tabs.unpop_tab(1)
-        """
-        a = self.tabs.popped_tabs
-        if not bool(a):
-            self.tabs.pop_tab(1)
-        a = self.tabs.popped_tabs[1]
-        a.show()"""
-
+            self.button_multi.set_colors(text = 'white',background='limegreen')
         
+        else:
+            self.button_multi.set_colors(text = "",background="")
+            self.tab_program.disable()
+            
+
+
+    def _button_single_setpoint_toggled(self):
+        if self.button_multi.is_checked(): self.button_multi.click()
+        
+        if self.button_single.is_checked():
+            self.button_single.set_colors(text = 'white',background='red')
+        else:
+            self.button_single.set_colors(text = "",background="")
+    
     def _number_setpoint_changed(self, *a):
         """
         Called when someone changes the number.
@@ -586,8 +597,10 @@ class auber_syl53x2p(serial_gui_base):
             try:
                 self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
                 self.timer.start()
-                self.button_program.enable()
+                
+                # Enable mode buttons
                 self.button_single.enable()
+                self.button_multi.enable()
             except:
                 self.number_setpoint.set_value(0)
                 self.button_connect.set_checked(False)
@@ -597,6 +610,10 @@ class auber_syl53x2p(serial_gui_base):
         else:
             self.label_temperature_status('(disconnected)')
             self.timer.stop()
+            
+            # Disable mode buttons
+            self.button_single.disable()
+            self.button_multi.disable()
                 
         
 
