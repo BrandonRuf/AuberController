@@ -392,6 +392,7 @@ class auber_syl53x2p(serial_gui_base):
 
         # Remember the limit
         self._temperature_limit = temperature_limit
+        
 
         # Run the base class stuff, which shows the window at the end.
         serial_gui_base.__init__(self, api_class=auber_syl53x2p_api, name=name, show=False, window_size=window_size)
@@ -462,7 +463,7 @@ class auber_syl53x2p(serial_gui_base):
         
         self.tab_program.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: white')
         
-        self.combo_program = self.tab_program.add(_g.ComboBox(["Custom","GaAs","GaAsP","GaAlAs"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: white')
+        self.combo_program = self.tab_program.add(_g.ComboBox(['Custom']+list(programss.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: white')
         self.button_run = self.tab_program.add(_g.Button('Run').set_height(27))
         self.button_run.signal_clicked.connect(self._button_run_toggled)
         
@@ -598,8 +599,38 @@ class auber_syl53x2p(serial_gui_base):
             # Disable mode buttons
             self.button_single.disable()
             self.button_multi.disable()
-                
         
+        
+programss = dict()        
+        
+def program(name, operation):
+    if name in programss.keys():
+        myprogram = programss[name]
+        numbers = list(myprogram)
+        myprogram[numbers[-1]+1] = operation
+    else:
+        programss[name] = dict()
+        programss[name][0] = operation
+        
+    
+
+program("GaAs",['Ramp', 550, 1.02])
+program("GaAs",["Soak", 550, .3])
+program("GaAs",["Ramp", 250, 2.1])
+program("GaAs",["Ramp", 25, 5])
+
+
+program("YBa2Cu3O7-x",['Ramp',950, 0])
+program("YBa2Cu3O7-x",['Soak',950, 2])
+program("YBa2Cu3O7-x",['Ramp',800, 2])
+program("YBa2Cu3O7-x",['Ramp',300, 10])
+program("YBa2Cu3O7-x",['Ramp',25, 4
+                       
+                       ])
+
+
+
+"Custom","GaAs","GaAsP","GaAlAs"                   
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
