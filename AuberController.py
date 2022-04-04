@@ -461,19 +461,22 @@ class auber_syl53x2p(serial_gui_base):
         
         self.program = dict()
         
-        self.tab_program.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: white')
+        self.tab_program.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: lavender')
         
-        self.combo_program = self.tab_program.add(_g.ComboBox(['Custom']+list(programss.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: white')
-        self.button_run = self.tab_program.add(_g.Button('Run').set_height(27))
-        self.button_run.signal_clicked.connect(self._button_run_toggled)
+        self.combo_program = self.tab_program.add(_g.ComboBox(['Custom']+list(programss.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: lavender')
+        self.combo_program.signal_changed.connect(self._program_changed)
+        
+        
+        self.button_run = self.tab_program.add(_g.Button('Run', checkable=True).set_height(27))
+        self.button_run.signal_toggled.connect(self._button_run_toggled)
         
         self.tab_program.new_autorow()
         
         for i in range(10):
             self.program[i] = dict()      
-            self.tab_program.add(_g.Label('Operation %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: mediumspringgreen')
+            self.tab_program.add(_g.Label('Step %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: pink')
             #self.tab_program.add(_g.Label('Operation:'),alignment=1).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["None","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: mediumspringgreen')
+            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["--","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
             self.tab_program.add(_g.Label('Temperature:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: cyan')
             self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: cyan')
             self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: gold')
@@ -484,9 +487,47 @@ class auber_syl53x2p(serial_gui_base):
             self.tab_program.set_column_stretch(column=1,stretch=0)
 
             self.program_mode = False        
-
+    
+    def _program_changed(self):
+        
+        if self.combo_program.get_text() == "Custom":
+            for i in range(10):
+                self.program[i]['operation']  .set_value(0)
+                self.program[i]['temperature'].set_value(25.4)
+                self.program[i]['time']       .set_value(2.5)
+        else:    
+            _program_name = self.combo_program.get_text()
+            _program =  programss[_program_name]
+            
+            for i in range(len(list(_program))):
+                s = _program[i]
+                if s[0] == "--":
+                    self.program[i]['operation']  .set_value(0)
+                elif s[0] == "Ramp":
+                    self.program[i]['operation']  .set_value(1)            
+                elif s[0] == "Soak":
+                    self.program[i]['operation']  .set_value(2)
+                
+                self.program[i]['temperature'].set_value(s[1])
+                self.program[i]['time']       .set_value(s[2])
+            
+            for i in range(len(list(_program)),10):
+                self.program[i]['operation']  .set_value(0)
+                self.program[i]['temperature'].set_value(25.4)
+                self.program[i]['time']       .set_value(2.5)
+                
+            s = _program[0]
+            self.program_running.set_value(_program_name)
+            self.operation.set_value(s[0])
+            self.step_duration.set_value(s[2]*3600)
+            self.program_time.set_value(s[2]*3600)
+            
+    
     def _button_run_toggled(self):
-        self.button_run.set_colors(background="mediumspringgreen")
+        if self.button_run.is_checked():
+            self.button_run.set_colors(text = 'white', background="mediumspringgreen")
+        else:
+            self.button_run.set_colors(text = "",background="")
 
     def _button_multi_toggled(self):
         
@@ -504,15 +545,25 @@ class auber_syl53x2p(serial_gui_base):
                 #self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
                 #self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
                 
-                self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: mediumspringgreen')
-                self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: mediumspringgreen').disable()
+                self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
+                self.program_running = self.grid_mid2.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+                
+
+                self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
+                self.step_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+                
+                self.grid_mid2.new_autorow()
+                
+                self.grid_mid2.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
+                self.step_number = self.grid_mid2.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+                
+                
+                self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
+                self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
                 
                 #self.grid_mid2.new_autorow()
                 
-                self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-                self.program_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-                
-                self.grid_mid2.add(_g.Label('Remaining Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
+                self.grid_mid2.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
                 self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
                 
                 self.program_mode = True
@@ -525,9 +576,7 @@ class auber_syl53x2p(serial_gui_base):
         
         else:
             self.button_multi.set_colors(text = "",background="")
-            self.tab_program.disable()
-            
-
+            self.tab_program.disable()  
 
     def _button_single_setpoint_toggled(self):
         if self.button_multi.is_checked(): self.button_multi.click()
@@ -545,9 +594,6 @@ class auber_syl53x2p(serial_gui_base):
         """
         # Set the temperature setpoint
         self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
-
-
-
 
     def _timer_tick(self, *a):
         """
@@ -569,8 +615,6 @@ class auber_syl53x2p(serial_gui_base):
         self.number_temperature(T)
         self.label_temperature_status.set_text('')
         self.window.process_events()
-
-
 
     def _after_button_connect_toggled(self):
         """
@@ -611,28 +655,25 @@ def program(name, operation):
     else:
         programss[name] = dict()
         programss[name][0] = operation
-        
-    
+
+
+program("YBa2Cu3O7-x",['Ramp',950, 0.1])
+program("YBa2Cu3O7-x",['Soak',950, 2])
+program("YBa2Cu3O7-x",['Ramp',800, 2])
+program("YBa2Cu3O7-x",['Ramp',300, 10])
+program("YBa2Cu3O7-x",['Ramp',25, 4])
 
 program("GaAs",['Ramp', 550, 1.02])
 program("GaAs",["Soak", 550, .3])
 program("GaAs",["Ramp", 250, 2.1])
 program("GaAs",["Ramp", 25, 5])
 
-
-program("YBa2Cu3O7-x",['Ramp',950, 0])
-program("YBa2Cu3O7-x",['Soak',950, 2])
-program("YBa2Cu3O7-x",['Ramp',800, 2])
-program("YBa2Cu3O7-x",['Ramp',300, 10])
-program("YBa2Cu3O7-x",['Ramp',25, 4
-                       
-                       ])
-
-
-
-"Custom","GaAs","GaAsP","GaAlAs"                   
+program("Pu-Ga (δ-phase stablized)",['Ramp', 639.4, 1])
+program("Pu-Ga (δ-phase stablized)",["Soak", 639.4, .3])
+program("Pu-Ga (δ-phase stablized)",["Ramp", 25, 1])
+                 
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
-    self = auber_syl53x2p(name = "Oven Controller #1",temperature_limit = 400)
+    self = auber_syl53x2p(name = "Oven Controller #1",temperature_limit = 1500)
 
