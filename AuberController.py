@@ -240,6 +240,345 @@ class serial_gui_base(_g.BaseObject):
         """
         return self._ports[self.combo_ports.get_index()]
 
+class auber_syl53x2p(serial_gui_base):
+    """
+    Graphical interface for the Auber SYL-53X2P temperature controller.
+    Parameters
+    ----------
+    name='auber_syl53x2p' : str
+        Unique name to give this instance, so that its settings will not
+        collide with other egg objects.
+    temperature_limit=450 : float
+        Upper limit on the temperature setpoint (C).
+    
+    show=True : bool
+        Whether to show the window after creating.
+    block=False : bool
+        Whether to block the console when showing the window.
+    window_size=[1,1] : list
+        Dimensions of the window.
+    """
+    def __init__(self, name='auber_syl53x2p', temperature_limit=500, show=True, block=False, window_size=[1,300]):
+        if not _mp._minimalmodbus or not _mp._serial: _s._warn('You need to install pyserial and minimalmodbus to use the Auber SYL-53X2P.')
+
+        # Remember the limit
+        self._temperature_limit = temperature_limit
+        
+
+        # Run the base class stuff, which shows the window at the end.
+        serial_gui_base.__init__(self, api_class=auber_syl53x2p_api, name=name, show=False, window_size=window_size)
+        
+        self.window.set_size([0,0])
+
+        style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
+        style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
+        style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
+
+        self.grid_mid.add(_g.Label('Measured Temperature:'), alignment=1).set_style(style_big_red)
+        
+        self.number_temperature = self.grid_mid.add(_g.NumberBox(
+            value=-273.16, suffix='°C', tip='Last recorded temperature value.'
+            ),alignment=1).set_width(175).disable().set_style(style_big_red)
+        
+        self.grid_mid.new_autorow()
+
+        # Add GUI stuff to the bottom grid
+        self.grid_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style(style_big)
+
+        self.number_setpoint = self.grid_mid.add(_g.NumberBox(
+            -273.16, bounds=(-273.16, temperature_limit), suffix='°C',
+            signal_changed=self._number_setpoint_changed
+            )).set_width(175).set_style(style_big).disable()
+        
+        self.label_temperature_status = self.grid_mid.add(_g.Label(
+            ''), column = 2, row_span=2).set_style(style_big)
+        
+        ## Add mode buttons to GUI (open and closed loop control modes)
+        self.grid_mode.add(_g.Label('Mode:')).set_style('color: azure')
+        
+        # Open loop (manual) control mode activation button
+        self.button_single  = self.grid_mode.add(_g.Button('Single Setpoint' ,checkable=True, tip='Enable manual temperature control.')).disable()
+        self.button_single.signal_toggled.connect(self._button_single_setpoint_toggled)
+        
+        # Closed loop control mode activation button
+        self.button_multi = self.grid_mode.add(_g.Button('Multi Setpoint',checkable=True, tip='Enable PID temperature control.')).disable()
+        self.button_multi.signal_toggled.connect(self._button_multi_toggled)
+        
+        self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
+        
+        self.tab_main  = self.tabs.add_tab('Main')
+
+
+        self.plot = self.tab_main.add(_g.DataboxPlot(
+            file_type='*.csv',
+            autosettings_path=name+'.plot',
+            delimiter=',', show_logger=True), alignment=0, column_span=10)
+        
+                # Timer for collecting data
+        self.timer = _g.Timer(interval_ms=1000, single_shot=False)
+        self.timer.signal_tick.connect(self._timer_tick)
+
+        # Bottom log file controls
+        self.tab_main.new_autorow()
+
+        # Finally show it.
+        self.window.show(block)
+        
+        #self.tabs1 = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10,column = 0, row=2)
+        self.tab_program = self.tabs.add_tab('Program')
+        self.tab_program.disable()
+        a = self.tabs.pop_tab(1)
+        a.hide()
+        
+        self.program = dict()
+        
+        self.tab_program.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: lavender')
+        
+        self.combo_program = self.tab_program.add(_g.ComboBox(['Custom']+list(program_set.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: lavender')
+        self.combo_program.signal_changed.connect(self._program_changed)
+        
+        
+        self.button_run = self.tab_program.add(_g.Button('Run', checkable=True).set_height(27))
+        self.button_run.signal_toggled.connect(self._button_run_toggled)
+        
+        self.tab_program.new_autorow()
+        
+        for i in range(10):
+            self.program[i] = dict()      
+            self.tab_program.add(_g.Label('Step %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: pink')
+            #self.tab_program.add(_g.Label('Operation:'),alignment=1).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["--","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
+            self.tab_program.add(_g.Label('Temperature:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: cyan')
+            self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: cyan')
+            self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.program[i]['time']        = self.tab_program.add(_g.NumberBox(2.50, bounds=(0,1000.), suffix='h'),alignment=1).set_width(75).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.tab_program.new_autorow()
+            self.tab_program.set_row_stretch(row=i+1,stretch=0)
+            
+            self.tab_program.set_column_stretch(column=1,stretch=0)
+
+            self.program_mode = False        
+    
+    def _program_changed(self):
+        self.step_index = 0
+        
+        if self.combo_program.get_text() == "Custom":
+            for i in range(10):
+                self.program[i]['operation']  .enable()
+                self.program[i]['temperature'].enable()
+                self.program[i]['time']       .enable()
+                
+                self.program[i]['operation']  .set_value(0)
+                self.program[i]['temperature'].set_value(25.4)
+                self.program[i]['time']       .set_value(2.5)
+        else:    
+            _program_name = self.combo_program.get_text()
+            self.loaded_program =  program_set[_program_name]
+            self.step_number.set_value("1/%d"%len(self.loaded_program.keys()))
+            
+            for i in range( len( list(self.loaded_program) ) ):
+                s = self.loaded_program[i]
+                if s[0] == "--":
+                    self.program[i]['operation']  .set_value(0)
+                elif s[0] == "Ramp":
+                    self.program[i]['operation']  .set_value(1)            
+                elif s[0] == "Soak":
+                    self.program[i]['operation']  .set_value(2)
+                
+                self.program[i]['temperature'].set_value(s[1])
+                self.program[i]['time']       .set_value(s[2])
+                
+                self.program[i]['operation']  .disable()
+                self.program[i]['temperature'].disable()
+                self.program[i]['time']       .disable()
+            
+            for i in range(len(list(self.loaded_program)),10):
+                self.program[i]['operation']  .set_value(0)
+                self.program[i]['temperature'].set_value(25.4)
+                self.program[i]['time']       .set_value(2.5)
+                
+                self.program[i]['operation']  .disable()
+                self.program[i]['temperature'].disable()
+                self.program[i]['time']       .disable()
+                
+            s = self.loaded_program[0]
+            self.program_running.set_value(_program_name)
+            self.operation.set_value(s[0])
+            self.step_duration.set_value(s[2]*3600)
+            self.program_time.set_value(s[2]*3600)
+            
+    
+    def _button_run_toggled(self):
+        if self.button_run.is_checked():
+            self.button_run.set_colors(text = 'white', background="mediumspringgreen")
+            
+            ############################################
+            self.t1 = _time.time()######################
+            ############################################
+            
+        else:
+            self.button_run.set_colors(text = "",background="")
+
+    def _button_multi_toggled(self):
+        
+        if self.button_single.is_checked(): self.button_single.click()
+        
+        if self.button_multi.is_checked():
+        
+            if(self.program_mode == False):
+                #self.grid_mid2.new_autorow()
+                
+                style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
+                style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
+                style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
+                
+                #self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
+                #self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
+                
+                self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
+                self.program_running = self.grid_mid2.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+                
+
+                self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
+                self.step_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+                
+                self.grid_mid2.new_autorow()
+                
+                self.grid_mid2.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
+                self.step_number = self.grid_mid2.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+                
+                
+                self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
+                self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+                
+                #self.grid_mid2.new_autorow()
+                
+                self.grid_mid2.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
+                self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+                
+                self.program_mode = True
+                
+                # Bring the hidden program tab into the GUI
+                self.tabs.unpop_tab(1)
+                
+            self.tab_program.enable()
+            self.button_multi.set_colors(text = 'white',background='limegreen')
+        
+        else:
+            self.button_multi.set_colors(text = "",background="")
+            self.tab_program.disable()  
+
+    def _button_single_setpoint_toggled(self):
+        if self.button_multi.is_checked(): self.button_multi.click()
+        
+        if self.button_single.is_checked():
+            self.number_setpoint.enable()
+            self.button_single.set_colors(text = 'white',background='red')
+        else:
+            self.number_setpoint.disable()
+            self.button_single.set_colors(text = "",background="")
+    
+    def _number_setpoint_changed(self, *a):
+        """
+        Called when someone changes the number.
+        """
+        # Set the temperature setpoint
+        self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
+
+    def _timer_tick(self, *a):
+        """
+        Called whenever the timer ticks. Let's update the plot and save the latest data.
+        """
+            
+        # Get the time, temperature, and setpoint
+        t = _time.time()-self.t0
+        T = self.api.get_temperature()
+        S = self.api.get_temperature_setpoint()
+        P = self.api.get_main_output_power()    
+        
+        #self.number_setpoint.set_value(S, block_signals=True)
+
+        # Append this to the databox
+        self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
+        self.plot.plot()
+
+        if self.button_run.is_checked():
+            t2 = _time.time()-self.t1
+            
+            if self.program_time.get_value()-1 >= 0:
+                self.program_time.set_value(self.step_duration.get_value()-t2)
+                self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
+            else:
+                self.step_index += 1
+                self.t1 = _time.time()
+                self.step_number.set_value("%d/%d"%(self.step_index+1, len(self.loaded_program.keys())))
+                self.operation.set_value(self.loaded_program[self.step_index][0])
+                self.step_duration.set_value(self.loaded_program[self.step_index][2]*3600)
+                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600)
+                
+                
+                
+        # Update the big red text.
+        self.number_temperature(T)
+        self.label_temperature_status.set_text('')
+        self.window.process_events()
+
+    def _after_button_connect_toggled(self):
+        """
+        Called after the connection or disconnection routine.
+        """
+        if self.button_connect.is_checked():
+
+            # Get the setpoint
+            try:
+                self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
+                self.timer.start()
+                
+                # Enable mode buttons
+                self.button_single.enable()
+                self.button_multi.enable()
+            except:
+                self.number_setpoint.set_value(0)
+                self.button_connect.set_checked(False)
+                self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
+        
+        # Disconnected
+        else:
+            self.label_temperature_status('(disconnected)')
+            self.timer.stop()
+            
+            # Disable mode buttons
+            self.button_single.disable()
+            self.button_multi.disable()
+        
+        
+program_set = dict()        
+        
+def program(name, operation):
+    if name in program_set.keys():
+        myprogram = program_set[name]
+        numbers = list(myprogram)
+        myprogram[numbers[-1]+1] = operation
+    else:
+        program_set[name] = dict()
+        program_set[name][0] = operation
+
+
+program("YBa2Cu3O7-x",['Ramp',950, 0.1])
+program("YBa2Cu3O7-x",['Soak',950, 2])
+program("YBa2Cu3O7-x",['Ramp',800, 2])
+program("YBa2Cu3O7-x",['Ramp',300, 10])
+program("YBa2Cu3O7-x",['Ramp',25, 4])
+
+program("GaAs",['Ramp', 550, 0.01])
+program("GaAs",["Soak", 550, 0.02])
+program("GaAs",["Ramp", 250, 2.1])
+program("GaAs",["Ramp", 25, 5])
+
+program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
+program("(δ-phase) Pu-Ga",["Soak", 639.4, .3])
+program("(δ-phase) Pu-Ga",["Ramp", 25, 1])
+                 
 
 class auber_syl53x2p_api():
     """
@@ -367,324 +706,6 @@ class auber_syl53x2p_api():
             self.modbus.write_register(0x00, T, number_of_decimals=1, functioncode=6)
             return T
         return self.get_temperature_setpoint()
-
-
-class auber_syl53x2p(serial_gui_base):
-    """
-    Graphical interface for the Auber SYL-53X2P temperature controller.
-    Parameters
-    ----------
-    name='auber_syl53x2p' : str
-        Unique name to give this instance, so that its settings will not
-        collide with other egg objects.
-    temperature_limit=450 : float
-        Upper limit on the temperature setpoint (C).
-    
-    show=True : bool
-        Whether to show the window after creating.
-    block=False : bool
-        Whether to block the console when showing the window.
-    window_size=[1,1] : list
-        Dimensions of the window.
-    """
-    def __init__(self, name='auber_syl53x2p', temperature_limit=500, show=True, block=False, window_size=[1,300]):
-        if not _mp._minimalmodbus or not _mp._serial: _s._warn('You need to install pyserial and minimalmodbus to use the Auber SYL-53X2P.')
-
-        # Remember the limit
-        self._temperature_limit = temperature_limit
-        
-
-        # Run the base class stuff, which shows the window at the end.
-        serial_gui_base.__init__(self, api_class=auber_syl53x2p_api, name=name, show=False, window_size=window_size)
-        
-        self.window.set_size([0,0])
-
-        style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
-        style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
-        style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
-
-        self.grid_mid.add(_g.Label('Measured Temperature:'), alignment=1).set_style(style_big_red)
-        
-        self.number_temperature = self.grid_mid.add(_g.NumberBox(
-            value=-273.16, suffix='°C', tip='Last recorded temperature value.'
-            ),alignment=1).set_width(175).disable().set_style(style_big_red)
-        
-        self.grid_mid.new_autorow()
-
-        # Add GUI stuff to the bottom grid
-        self.grid_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style(style_big)
-
-        self.number_setpoint = self.grid_mid.add(_g.NumberBox(
-            -273.16, bounds=(-273.16, temperature_limit), suffix='°C',
-            signal_changed=self._number_setpoint_changed
-            )).set_width(175).set_style(style_big).disable()
-        
-        self.label_temperature_status = self.grid_mid.add(_g.Label(
-            ''), column = 2, row_span=2).set_style(style_big)
-        
-        ## Add mode buttons to GUI (open and closed loop control modes)
-        self.grid_mode.add(_g.Label('Mode:')).set_style('color: azure')
-        
-        # Open loop (manual) control mode activation button
-        self.button_single  = self.grid_mode.add(_g.Button('Single Setpoint' ,checkable=True, tip='Enable manual temperature control.')).disable()
-        self.button_single.signal_toggled.connect(self._button_single_setpoint_toggled)
-        
-        # Closed loop control mode activation button
-        self.button_multi = self.grid_mode.add(_g.Button('Multi Setpoint',checkable=True, tip='Enable PID temperature control.')).disable()
-        self.button_multi.signal_toggled.connect(self._button_multi_toggled)
-        
-        self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
-        
-        self.tab_main  = self.tabs.add_tab('Main')
-
-
-        self.plot = self.tab_main.add(_g.DataboxPlot(
-            file_type='*.csv',
-            autosettings_path=name+'.plot',
-            delimiter=',', show_logger=True), alignment=0, column_span=10)
-        
-                # Timer for collecting data
-        self.timer = _g.Timer(interval_ms=1000, single_shot=False)
-        self.timer.signal_tick.connect(self._timer_tick)
-
-        # Bottom log file controls
-        self.tab_main.new_autorow()
-
-        # Finally show it.
-        self.window.show(block)
-        
-        #self.tabs1 = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10,column = 0, row=2)
-        self.tab_program = self.tabs.add_tab('Program')
-        self.tab_program.disable()
-        a = self.tabs.pop_tab(1)
-        a.hide()
-        
-        self.program = dict()
-        
-        self.tab_program.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: lavender')
-        
-        self.combo_program = self.tab_program.add(_g.ComboBox(['Custom']+list(programss.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: lavender')
-        self.combo_program.signal_changed.connect(self._program_changed)
-        
-        
-        self.button_run = self.tab_program.add(_g.Button('Run', checkable=True).set_height(27))
-        self.button_run.signal_toggled.connect(self._button_run_toggled)
-        
-        self.tab_program.new_autorow()
-        
-        for i in range(10):
-            self.program[i] = dict()      
-            self.tab_program.add(_g.Label('Step %d:'%i),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: pink')
-            #self.tab_program.add(_g.Label('Operation:'),alignment=1).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["--","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
-            self.tab_program.add(_g.Label('Temperature:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.program[i]['time']        = self.tab_program.add(_g.NumberBox(2.50, bounds=(0,1000.), suffix='h'),alignment=1).set_width(75).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.tab_program.new_autorow()
-            self.tab_program.set_row_stretch(row=i+1,stretch=0)
-            
-            self.tab_program.set_column_stretch(column=1,stretch=0)
-
-            self.program_mode = False        
-    
-    def _program_changed(self):
-        
-        if self.combo_program.get_text() == "Custom":
-            for i in range(10):
-                self.program[i]['operation']  .enable()
-                self.program[i]['temperature'].enable()
-                self.program[i]['time']       .enable()
-                
-                self.program[i]['operation']  .set_value(0)
-                self.program[i]['temperature'].set_value(25.4)
-                self.program[i]['time']       .set_value(2.5)
-        else:    
-            _program_name = self.combo_program.get_text()
-            _program =  programss[_program_name]
-            
-            for i in range(len(list(_program))):
-                s = _program[i]
-                if s[0] == "--":
-                    self.program[i]['operation']  .set_value(0)
-                elif s[0] == "Ramp":
-                    self.program[i]['operation']  .set_value(1)            
-                elif s[0] == "Soak":
-                    self.program[i]['operation']  .set_value(2)
-                
-                self.program[i]['temperature'].set_value(s[1])
-                self.program[i]['time']       .set_value(s[2])
-                
-                self.program[i]['operation']  .disable()
-                self.program[i]['temperature'].disable()
-                self.program[i]['time']       .disable()
-            
-            for i in range(len(list(_program)),10):
-                self.program[i]['operation']  .set_value(0)
-                self.program[i]['temperature'].set_value(25.4)
-                self.program[i]['time']       .set_value(2.5)
-                
-                self.program[i]['operation']  .disable()
-                self.program[i]['temperature'].disable()
-                self.program[i]['time']       .disable()
-                
-            s = _program[0]
-            self.program_running.set_value(_program_name)
-            self.operation.set_value(s[0])
-            self.step_duration.set_value(s[2]*3600)
-            self.program_time.set_value(s[2]*3600)
-            
-    
-    def _button_run_toggled(self):
-        if self.button_run.is_checked():
-            self.button_run.set_colors(text = 'white', background="mediumspringgreen")
-        else:
-            self.button_run.set_colors(text = "",background="")
-
-    def _button_multi_toggled(self):
-        
-        if self.button_single.is_checked(): self.button_single.click()
-        
-        if self.button_multi.is_checked():
-        
-            if(self.program_mode == False):
-                #self.grid_mid2.new_autorow()
-                
-                style_big_blue = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
-                style_big_red  = 'font-size: 17pt; font-weight: bold; color: '+('white' if _s.settings['dark_theme_qt'] else 'red')
-                style_big      = 'font-size: 17pt; font-weight: bold; color: '+('cyan' if _s.settings['dark_theme_qt'] else 'purple')
-                
-                #self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style(style_big_blue)
-                #self.program = self.grid_mid2.add(_g.NumberBox(1),alignment=1).set_width(100).set_style(style_big_blue).disable()
-                
-                self.grid_mid2.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-                self.program_running = self.grid_mid2.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
-                
-
-                self.grid_mid2.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-                self.step_duration = self.grid_mid2.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-                
-                self.grid_mid2.new_autorow()
-                
-                self.grid_mid2.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-                self.step_number = self.grid_mid2.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
-                
-                
-                self.grid_mid2.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-                self.operation = self.grid_mid2.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
-                
-                #self.grid_mid2.new_autorow()
-                
-                self.grid_mid2.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-                self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-                
-                self.program_mode = True
-                
-                # Bring the hidden program tab into the GUI
-                self.tabs.unpop_tab(1)
-                
-            self.tab_program.enable()
-            self.button_multi.set_colors(text = 'white',background='limegreen')
-        
-        else:
-            self.button_multi.set_colors(text = "",background="")
-            self.tab_program.disable()  
-
-    def _button_single_setpoint_toggled(self):
-        if self.button_multi.is_checked(): self.button_multi.click()
-        
-        if self.button_single.is_checked():
-            self.number_setpoint.enable()
-            self.button_single.set_colors(text = 'white',background='red')
-        else:
-            self.number_setpoint.disable()
-            self.button_single.set_colors(text = "",background="")
-    
-    def _number_setpoint_changed(self, *a):
-        """
-        Called when someone changes the number.
-        """
-        # Set the temperature setpoint
-        self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
-
-    def _timer_tick(self, *a):
-        """
-        Called whenever the timer ticks. Let's update the plot and save the latest data.
-        """
-        # Get the time, temperature, and setpoint
-        t = _time.time()-self.t0
-        T = self.api.get_temperature()
-        S = self.api.get_temperature_setpoint()
-        P = self.api.get_main_output_power()
-        self.number_setpoint.set_value(S, block_signals=True)
-
-        # Append this to the databox
-        self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
-        self.plot.plot()
-
-        if self.button_run.is_checked():
-            self.program_time.set_value(self.program_time.get_value()-1)
-        # Update the big red text.
-        self.number_temperature(T)
-        self.label_temperature_status.set_text('')
-        self.window.process_events()
-
-    def _after_button_connect_toggled(self):
-        """
-        Called after the connection or disconnection routine.
-        """
-        if self.button_connect.is_checked():
-
-            # Get the setpoint
-            try:
-                self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
-                self.timer.start()
-                
-                # Enable mode buttons
-                self.button_single.enable()
-                self.button_multi.enable()
-            except:
-                self.number_setpoint.set_value(0)
-                self.button_connect.set_checked(False)
-                self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
-        
-        # Disconnected
-        else:
-            self.label_temperature_status('(disconnected)')
-            self.timer.stop()
-            
-            # Disable mode buttons
-            self.button_single.disable()
-            self.button_multi.disable()
-        
-        
-programss = dict()        
-        
-def program(name, operation):
-    if name in programss.keys():
-        myprogram = programss[name]
-        numbers = list(myprogram)
-        myprogram[numbers[-1]+1] = operation
-    else:
-        programss[name] = dict()
-        programss[name][0] = operation
-
-
-program("YBa2Cu3O7-x",['Ramp',950, 0.1])
-program("YBa2Cu3O7-x",['Soak',950, 2])
-program("YBa2Cu3O7-x",['Ramp',800, 2])
-program("YBa2Cu3O7-x",['Ramp',300, 10])
-program("YBa2Cu3O7-x",['Ramp',25, 4])
-
-program("GaAs",['Ramp', 550, 1.02])
-program("GaAs",["Soak", 550, .3])
-program("GaAs",["Ramp", 250, 2.1])
-program("GaAs",["Ramp", 25, 5])
-
-program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
-program("(δ-phase) Pu-Ga",["Soak", 639.4, .3])
-program("(δ-phase) Pu-Ga",["Ramp", 25, 1])
-                 
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
