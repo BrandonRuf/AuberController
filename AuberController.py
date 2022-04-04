@@ -361,6 +361,7 @@ class auber_syl53x2p(serial_gui_base):
     
     def _program_changed(self):
         self.step_index = 0
+        self.step_time  = 0
         
         if self.combo_program.get_text() == "Custom":
             for i in range(10):
@@ -404,20 +405,36 @@ class auber_syl53x2p(serial_gui_base):
             s = self.loaded_program[0]
             self.program_running.set_value(_program_name)
             self.operation.set_value(s[0])
+            if s[0] == 'Ramp': 
+                self.ramp = True
+                self.dT = self.loaded_program[self.step_index][1] - self.api.get_temperature()
+                duration_seconds = self.loaded_program[self.step_index][2]*3600
+                self.step_time = duration_seconds / ((self.dT) * 10.0)
+
             self.step_duration.set_value(s[2]*3600)
             self.program_time.set_value(s[2]*3600)
             
     
     def _button_run_toggled(self):
         if self.button_run.is_checked():
+            
+            # Turn the "Run" button green to show that the program is running
             self.button_run.set_colors(text = 'white', background="mediumspringgreen")
             
+            # Disable the program selector
+            self.combo_program.disable()
+            
             ############################################
-            self.t1 = _time.time()######################
-            ############################################
+            self.t1 = _time.time()
+            
+            self.t_next = self.step_time
             
         else:
-            self.button_run.set_colors(text = "",background="")
+            # Reset the "Run" button colors
+            self.button_run.set_colors(text = '', background = '')
+            
+            # Re-enable the program selector
+            self.combo_program.enable()
 
     def _button_multi_toggled(self):
         
@@ -454,7 +471,7 @@ class auber_syl53x2p(serial_gui_base):
                 #self.grid_mid2.new_autorow()
                 
                 self.grid_mid2.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-                self.program_time = self.grid_mid2.add(_g.NumberBox(1102, suffix = 's'),alignment=1).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+                self.program_time = self.grid_mid2.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
                 
                 self.program_mode = True
                 
@@ -496,25 +513,42 @@ class auber_syl53x2p(serial_gui_base):
         S = self.api.get_temperature_setpoint()
         P = self.api.get_main_output_power()    
         
-        #self.number_setpoint.set_value(S, block_signals=True)
-
         # Append this to the databox
         self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
         self.plot.plot()
 
         if self.button_run.is_checked():
-            t2 = _time.time()-self.t1
+            
+            # Calculate time since program step has started
+            t2 = _time.time() - self.t1
             
             if self.program_time.get_value()-1 >= 0:
                 self.program_time.set_value(self.step_duration.get_value()-t2)
-                self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
+                
+                if self.ramp:
+                    if(t2 > self.t_next):
+                        self.number_setpoint.set_value(S+.1)
+                        self.t_next = self.t_next + self.step_time
+                else:
+                    self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
+                
+                
             else:
                 self.step_index += 1
                 self.t1 = _time.time()
                 self.step_number.set_value("%d/%d"%(self.step_index+1, len(self.loaded_program.keys())))
-                self.operation.set_value(self.loaded_program[self.step_index][0])
+                
+                if self.loaded_program[self.step_index][0] == "Ramp":
+                    self.operation.set_value("Ramp")
+                    self.dT = self.loaded_program[self.step_index][1] - T
+                    duration_seconds = self.loaded_program[self.step_index][2]*3600
+                    self.step_time = duration_seconds / ((self.dT) * 10.0)
+                    self.ramp = True
+                else:
+                    self.ramp = False
+                    
                 self.step_duration.set_value(self.loaded_program[self.step_index][2]*3600)
-                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600)
+                self.program_time .set_value(self.loaded_program[self.step_index][2]*3600)
                 
                 
                 
@@ -570,9 +604,9 @@ program("YBa2Cu3O7-x",['Ramp',800, 2])
 program("YBa2Cu3O7-x",['Ramp',300, 10])
 program("YBa2Cu3O7-x",['Ramp',25, 4])
 
-program("GaAs",['Ramp', 550, 0.01])
-program("GaAs",["Soak", 550, 0.02])
-program("GaAs",["Ramp", 250, 2.1])
+program("GaAs",['Ramp', 50, 0.1])
+program("GaAs",["Soak", 50, 0.1])
+program("GaAs",["Ramp", 34, 2.1])
 program("GaAs",["Ramp", 25, 5])
 
 program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
@@ -614,6 +648,8 @@ class auber_syl53x2p_api():
 
         # If the port is "Simulation"
         if port=='Simulation': self.simulation_mode = True
+        
+        self.simulation_setpoint = 24.5
 
         # If we have all the libraries, try connecting.
         if not self.simulation_mode:
@@ -680,7 +716,7 @@ class auber_syl53x2p_api():
         """
         Gets the current temperature setpoint in Celcius.
         """
-        if self.simulation_mode: return 24.5
+        if self.simulation_mode: return self.simulation_setpoint
         else:                    return self.modbus.read_register(0x1002, 1)
 
     def set_temperature_setpoint(self, T=20.0, temperature_limit=None):
@@ -705,6 +741,7 @@ class auber_syl53x2p_api():
         if not self.simulation_mode:
             self.modbus.write_register(0x00, T, number_of_decimals=1, functioncode=6)
             return T
+        self.simulation_setpoint = T
         return self.get_temperature_setpoint()
 
 if __name__ == '__main__':
