@@ -492,6 +492,10 @@ class auber_syl53x2p(serial_gui_base):
         
         if self.combo_program.get_text() == "Custom":
             for i in range(10):
+                self.program[i]['operation']  .enable()
+                self.program[i]['temperature'].enable()
+                self.program[i]['time']       .enable()
+                
                 self.program[i]['operation']  .set_value(0)
                 self.program[i]['temperature'].set_value(25.4)
                 self.program[i]['time']       .set_value(2.5)
@@ -510,11 +514,19 @@ class auber_syl53x2p(serial_gui_base):
                 
                 self.program[i]['temperature'].set_value(s[1])
                 self.program[i]['time']       .set_value(s[2])
+                
+                self.program[i]['operation']  .disable()
+                self.program[i]['temperature'].disable()
+                self.program[i]['time']       .disable()
             
             for i in range(len(list(_program)),10):
                 self.program[i]['operation']  .set_value(0)
                 self.program[i]['temperature'].set_value(25.4)
                 self.program[i]['time']       .set_value(2.5)
+                
+                self.program[i]['operation']  .disable()
+                self.program[i]['temperature'].disable()
+                self.program[i]['time']       .disable()
                 
             s = _program[0]
             self.program_running.set_value(_program_name)
@@ -668,9 +680,9 @@ program("GaAs",["Soak", 550, .3])
 program("GaAs",["Ramp", 250, 2.1])
 program("GaAs",["Ramp", 25, 5])
 
-program("Pu-Ga (δ-phase stablized)",['Ramp', 639.4, 1])
-program("Pu-Ga (δ-phase stablized)",["Soak", 639.4, .3])
-program("Pu-Ga (δ-phase stablized)",["Ramp", 25, 1])
+program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
+program("(δ-phase) Pu-Ga",["Soak", 639.4, .3])
+program("(δ-phase) Pu-Ga",["Ramp", 25, 1])
                  
 
 if __name__ == '__main__':
