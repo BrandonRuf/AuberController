@@ -622,7 +622,8 @@ class auber_syl53x2p(serial_gui_base):
         self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
         self.plot.plot()
 
-        #self.program_time.set_value(self.program_time.get_value()-1)
+        if self.button_run.is_checked():
+            self.program_time.set_value(self.program_time.get_value()-1)
         # Update the big red text.
         self.number_temperature(T)
         self.label_temperature_status.set_text('')
