@@ -284,15 +284,26 @@ class auber_syl53x2p(serial_gui_base):
         self.grid_mid.new_autorow()
 
         # Add NumberBox of the Auber's current setpoint temperature 
-        self.grid_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style('font-size: 17pt; font-weight: bold; color: cyan')
+        self.grid_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style(style_3)
 
         self.number_setpoint = self.grid_mid.add(_g.NumberBox(
             -273.16, bounds=(-273.16, temperature_limit), suffix='°C',
             signal_changed=self._number_setpoint_changed)
-            ).set_width(175).set_style('font-size: 17pt; font-weight: bold; color: cyan').disable()
+            ).set_width(175).set_style(style_3).disable()
         
         self.label_temperature_status = self.grid_mid.add(_g.Label(
-            ''), column = 2, row_span=2).set_style(style_3)  
+            ''), column = 2, row_span=2).set_style(style_3)
+        
+        # Add mode buttons 
+        self.grid_mode.add(_g.Label('Mode:')).set_style('color: azure')
+        
+        # Single setpoint mode activation button
+        self.button_single_setpoint = self.grid_mode.add(_g.Button('Single Setpoint' ,checkable=True, tip='Enable manual temperature control.')).disable()
+        self.button_single_setpoint.signal_toggled.connect(self._button_single_setpoint_toggled)
+        
+        # Program setpoint mode activation button
+        self.button_program_setpoint = self.grid_mode.add(_g.Button('Multi Setpoint',checkable=True, tip='Enable PID temperature control.')).disable()
+        self.button_program_setpoint.signal_toggled.connect(self._button_program_setpoint_toggled)
         
         # Add a tabs section in the bottom grid
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
@@ -319,7 +330,8 @@ class auber_syl53x2p(serial_gui_base):
         # Create a new tab to hold program setpoint control
         self.tab_program = self.tabs.add_tab('Program')
         
-        # Pop tab from the main GUI
+        # Disable the tab and pop it from the main GUI
+        self.tab_program.disable()
         poped_tab = self.tabs.pop_tab(1)
         poped_tab.hide()
         
@@ -332,7 +344,6 @@ class auber_syl53x2p(serial_gui_base):
         # Add "Run" button for program activation
         self.button_run = self.tab_program.add(_g.Button('Run', checkable=True).set_height(27))
         self.button_run.signal_toggled.connect(self._button_run_toggled)
-        
         
         # New row
         self.tab_program.new_autorow()
@@ -357,29 +368,8 @@ class auber_syl53x2p(serial_gui_base):
             self.tab_program.set_row_stretch(row=i+1,stretch=0)
             self.tab_program.set_column_stretch(column=1,stretch=0)
         
-        self.program_mode = False
-        
-        
-        self.grid_program.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-        self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
-        
-        
-        self.grid_program.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self.program_progress = self.grid_program.add(_g.TextBox("0%"),alignment=1).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-        
-        self.grid_program.new_autorow()
-        
-        self.grid_program.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-        self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
-        
-        self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-        self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
-        
-        #self.grid_program.new_autorow()
-                
-        self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-                    
+        # One time flag for hiding program mode in the GUI
+        self.program_mode = False        
     
     def _combo_program_changed(self):
         "Called when the program selector tab is changed"
@@ -405,9 +395,6 @@ class auber_syl53x2p(serial_gui_base):
             #
             self.step_number.set_value("1/%d"%len(self.loaded_program.keys()))
             
-            # 
-            self.program_length = 0
-            
             # Setup all the program steps being used
             for i in range( len(self.loaded_program.keys()) ):
                 
@@ -420,8 +407,6 @@ class auber_syl53x2p(serial_gui_base):
                 
                 self.program[i]['temperature'].set_value(step[1])
                 self.program[i]['time']       .set_value(step[2])
-                
-                self.program_length += step[2]*3600
                 
             # Blank all the program steps not being used
             for i in range(len(list(self.loaded_program)),10):
@@ -445,6 +430,7 @@ class auber_syl53x2p(serial_gui_base):
             #
             self.program_running.set_value(_program_name)
             self.operation      .set_value(self.loaded_program[0][0])
+            self.step_duration  .set_value(self.loaded_program[0][2]*3600)
             self.program_time   .set_value(self.loaded_program[0][2]*3600)
                
     def _button_run_toggled(self):
@@ -467,6 +453,66 @@ class auber_syl53x2p(serial_gui_base):
             
             # Re-enable the program selector
             self.combo_program.enable()
+
+    def _button_program_setpoint_toggled(self):
+        
+        if self.button_single_setpoint.is_checked(): self.button_single_setpoint.click()
+        
+        if self.button_program_setpoint.is_checked():
+        
+            if(self.program_mode == False):
+                
+                self.grid_program.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
+                self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+                
+
+                self.grid_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
+                self.step_duration = self.grid_program.add(_g.NumberBox(3600, suffix = 's'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+                
+                self.grid_program.new_autorow()
+                
+                self.grid_program.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
+                self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+                
+                
+                self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
+                self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+                
+                #self.grid_program.new_autorow()
+                
+                self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
+                self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+                
+                self.program_mode = True
+                
+                # Bring the hidden program tab into the GUI
+                self.tabs.unpop_tab(1)
+                
+            self.tab_program.enable()
+            self.button_program_setpoint.set_colors(text = 'white',background='limegreen')
+        
+        else:
+            
+            # Turn off running program (if there is one)
+            if self.button_run.is_checked(): self.button_run.click()
+            
+            # Reset button color
+            self.button_program_setpoint.set_colors(text = "",background="")
+            
+            # Disable the program tab
+            self.tab_program.disable()  
+
+    def _button_single_setpoint_toggled(self):
+        
+        # 
+        if self.button_program_setpoint.is_checked(): self.button_program_setpoint.click()
+        
+        if self.button_single_setpoint.is_checked():
+            self.number_setpoint.enable()
+            self.button_single_setpoint.set_colors(text = 'white',background='red')
+        else:
+            self.number_setpoint.disable()
+            self.button_single_setpoint.set_colors(text = "",background="")
     
     def _number_setpoint_changed(self, *a):
         """
@@ -495,10 +541,8 @@ class auber_syl53x2p(serial_gui_base):
             # Calculate time since program step has started
             t2 = _time.time() - self.t1
             
-            self.program_progress.set_value("%.2f %%"%(100*t2/self.program_length))
-            
             if self.program_time.get_value()-1 >= 0:
-                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600-t2)
+                self.program_time.set_value(self.step_duration.get_value()-t2)
                 
                 if self.ramp:
                     if(t2 > self.t_next):
@@ -546,14 +590,9 @@ class auber_syl53x2p(serial_gui_base):
                 self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
                 self.timer.start()
                 
-                if(self.program_mode == False):
-                
-                
-                    self.program_mode = True
-                
-                    # Bring the hidden program tab into the GUI
-                    self.tabs.unpop_tab(1)
-                
+                # Enable mode buttons
+                self.button_single_setpoint.enable()
+                self.button_program_setpoint.enable()
             except:
                 self.number_setpoint.set_value(0)
                 self.button_connect.set_checked(False)
@@ -563,6 +602,10 @@ class auber_syl53x2p(serial_gui_base):
         else:
             self.label_temperature_status('(disconnected)')
             self.timer.stop()
+            
+            # Disable mode buttons
+            self.button_single_setpoint.disable()
+            self.button_program_setpoint.disable()
         
         
 program_set = dict()        
@@ -594,7 +637,7 @@ program("EuMnSb2",['Ramp',20,3])
 program("GaAs",['Ramp', 50, 0.12])
 program("GaAs",["Soak", 50, 0.13])
 program("GaAs",["Ramp", 34, 0.1])
-program("GaAs",["Ramp", 25, .5])
+program("GaAs",["Ramp", 25, 5])
 
 program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
 program("(δ-phase) Pu-Ga",["Soak", 639.4, .3])
