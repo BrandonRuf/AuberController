@@ -356,9 +356,7 @@ class auber_syl53x2p(serial_gui_base):
             self.tab_program.new_autorow()
             self.tab_program.set_row_stretch(row=i+1,stretch=0)
             self.tab_program.set_column_stretch(column=1,stretch=0)
-        
-        self.program_mode = False
-        
+    
         
         self.grid_program.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
         self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
@@ -375,8 +373,6 @@ class auber_syl53x2p(serial_gui_base):
         self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
         self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
         
-        #self.grid_program.new_autorow()
-                
         self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
         self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
                     
@@ -402,10 +398,7 @@ class auber_syl53x2p(serial_gui_base):
             # Load in the selected program
             self.loaded_program =  program_set[_program_name]
             
-            #
-            self.step_number.set_value("1/%d"%len(self.loaded_program.keys()))
-            
-            # 
+            # Variable to save the total length of the loaded program
             self.program_length = 0
             
             # Setup all the program steps being used
@@ -421,6 +414,7 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['temperature'].set_value(step[1])
                 self.program[i]['time']       .set_value(step[2])
                 
+                # Add the length of this step to the total program length
                 self.program_length += step[2]*3600
                 
             # Blank all the program steps not being used
@@ -437,13 +431,13 @@ class auber_syl53x2p(serial_gui_base):
             
             
             if self.loaded_program[0][0] == 'Ramp': 
-                self.ramp = True
                 self.dT = self.loaded_program[self.step_index][1] - self.api.get_temperature()
                 duration_seconds = self.loaded_program[self.step_index][2]*3600
                 self.step_time = duration_seconds / ((self.dT) * 10.0)
             
-            #
+            # Update the GUI data boxes with the current program info
             self.program_running.set_value(_program_name)
+            self.step_number    .set_value("1/%d"%len(self.loaded_program.keys()))
             self.operation      .set_value(self.loaded_program[0][0])
             self.program_time   .set_value(self.loaded_program[0][2]*3600)
                
@@ -490,51 +484,68 @@ class auber_syl53x2p(serial_gui_base):
         self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
         self.plot.plot()
 
+        #
+        self._program_increment(T,S)
+                
+                
+        # Update the temperature data box
+        self.number_temperature(T)
+        
+        # 
+        self.label_temperature_status.set_text('')
+        
+        # Update the GUI
+        self.window.process_events()
+    
+    def _program_increment(self, T, S):
+        
         if self.button_run.is_checked():
             
             # Calculate time since program step has started
             t2 = _time.time() - self.t1
             
+            # Update the program progress counter in the GUI
             self.program_progress.set_value("%.2f %%"%(100*t2/self.program_length))
             
-            if self.program_time.get_value()-1 >= 0:
+            if self.program_time.get_value()- t2 > 0:
                 self.program_time.set_value(self.loaded_program[self.step_index][2]*3600-t2)
-                
-                if self.ramp:
-                    if(t2 > self.t_next):
-                        self.number_setpoint.set_value(S+.1)
-                        self.t_next = self.t_next + self.step_time
-                else:
-                    self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
-                
-                
+                self._increment_temperature(T, S, t2)
+                   
             else:
+                # Move to the next program step
                 self.step_index += 1
+                
+                # Get a new time reference for the start of the step
                 self.t1 = _time.time()
-                self.step_number.set_value("%d/%d"%(self.step_index+1, len(self.loaded_program.keys())))
+                
+                # Update the step number in the GUI
+                self.step_number.set_value( "%d/%d"%(self.step_index+1, len(self.loaded_program.keys())) )
+                
+                # Update the step time in the GUI
+                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600)
                 
                 if self.loaded_program[self.step_index][0] == "Ramp":
+                    self.operation.set_value("Ramp")
                     
                     self.dT = self.loaded_program[self.step_index][1] - T
-                    duration_seconds = self.loaded_program[self.step_index][2]*3600
-                    self.step_time = duration_seconds / ((self.dT) * 10.0)
-                    
-                    self.operation.set_value("Ramp")
-                    self.ramp = True
+                    self.step_time =  self.loaded_program[self.step_index][2]*3600 / (self.dT * 10.0)
+            
                 else:
                     self.operation.set_value("Soak")
-                    self.ramp = False
                     
-                self.step_duration.set_value(self.loaded_program[self.step_index][2]*3600)
-                self.program_time .set_value(self.loaded_program[self.step_index][2]*3600)
                 
-                
-                
-        # Update the big red text.
-        self.number_temperature(T)
-        self.label_temperature_status.set_text('')
-        self.window.process_events()
-
+       
+    def _increment_temperature(self, T, S, t2):
+        
+        if self.loaded_program[self.step_index][0] == "Ramp":
+            
+            if(t2 > self.t_next):
+                self.number_setpoint.set_value(S+.1)
+                self.t_next = self.t_next + self.step_time
+        else:
+            self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
+        
+        
     def _after_button_connect_toggled(self):
         """
         Called after the connection or disconnection routine.
@@ -546,13 +557,8 @@ class auber_syl53x2p(serial_gui_base):
                 self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
                 self.timer.start()
                 
-                if(self.program_mode == False):
-                
-                
-                    self.program_mode = True
-                
-                    # Bring the hidden program tab into the GUI
-                    self.tabs.unpop_tab(1)
+                # Bring the hidden program tab into the GUI
+                if 1 in self.tabs.popped_tabs: self.tabs.unpop_tab(1)
                 
             except:
                 self.number_setpoint.set_value(0)
@@ -605,5 +611,5 @@ program("(δ-phase) Pu-Ga",["Ramp", 25, 1])
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
-    self = auber_syl53x2p(name = "Oven Controller #1",temperature_limit = 1500)
+    self = auber_syl53x2p(name = "Domenic's Oven Controller #1",temperature_limit = 1500)
 
