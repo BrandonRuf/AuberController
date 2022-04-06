@@ -363,7 +363,7 @@ class auber_syl53x2p(serial_gui_base):
         
         
         self.grid_program.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self.program_progress = self.grid_program.add(_g.TextBox("0%"),alignment=1).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+        self.program_progress = self.grid_program.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
         
         self.grid_program.new_autorow()
         
@@ -371,7 +371,7 @@ class auber_syl53x2p(serial_gui_base):
         self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
         
         self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-        self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+        self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
         
         self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
         self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
