@@ -447,12 +447,10 @@ class auber_syl53x2p(serial_gui_base):
         
         self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
         self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-                    
-    
+        
     def _combo_program_changed(self):
         "Called when the program selector tab is changed"
-        
-        self.step_index = 0
+                
         self.step_time  = 0
         
         _program_name = self.combo_program.get_text()
@@ -468,16 +466,13 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['time']       .set_value(200.5)
         else:    
             # Load in the selected program
-            self.loaded_program =  program_set[_program_name]
-            
-            # Variable to save the total length of the loaded program
-            self.program_length = 0
+            self.loaded_program = program(_program_name)
             
             # Setup all the program steps being used
-            for i in range( len(self.loaded_program) ):
+            for i in range(self.loaded_program.get_size()):
                 
                 # Get next program step
-                step = self.loaded_program[i]
+                step = self.loaded_program.get_step(i)
                 
                 if   step[0] == "--"   : self.program[i]['operation']  .set_value(0)
                 elif step[0] == "Ramp" : self.program[i]['operation']  .set_value(1)            
@@ -486,11 +481,8 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['temperature'].set_value(step[1])
                 self.program[i]['time']       .set_value(step[2])
                 
-                # Add the length of this step to the total program length
-                self.program_length += step[2]*3600
-                
             # Blank all the program steps not being used
-            for i in range(len(list(self.loaded_program)),10):
+            for i in range(self.loaded_program.get_size(),10):
                 self.program[i]['operation']  .set_value(0)
                 self.program[i]['temperature'].set_value(25.4)
                 self.program[i]['time']       .set_value(2.5)
@@ -501,17 +493,17 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['temperature'].disable()
                 self.program[i]['time']       .disable()
             
-            
-            if self.loaded_program[0][0] == 'Ramp': 
-                self.dT = self.loaded_program[self.step_index][1] - self.api.get_temperature()
-                duration_seconds = self.loaded_program[self.step_index][2]*3600
-                self.step_time = duration_seconds / ((self.dT) * 10.0)
+            # 
+            if self.loaded_program.get_operation() == 'Ramp': 
+                self.dT        = self.loaded_program.get_temperature() - self.api.get_temperature()
+                self.step_time = self.loaded_program.get_duration()*3600 / ((self.dT) * 10.0)
             
             # Update the GUI data boxes with the current program info
-            self.step_number    .set_value("1/%d"%len(self.loaded_program))
-            self.operation      .set_value(self.loaded_program[0][0])
-            self.program_time   .set_value(self.loaded_program[0][2]*3600)
+            self.step_number    .set_value("1/%d"%self.loaded_program.get_size())
+            self.operation      .set_value(self.loaded_program.get_operation())
+            self.program_time   .set_value(self.loaded_program.get_duration()*3600)
         
+        # Set the program name in the GUI
         self.program_running.set_value(_program_name)
                
     def _button_run_toggled(self):
@@ -526,6 +518,7 @@ class auber_syl53x2p(serial_gui_base):
             # Time of program start
             self.t1 = _time.time()
             
+            #
             self.t_next = self.step_time
             
         else:
@@ -577,44 +570,50 @@ class auber_syl53x2p(serial_gui_base):
             # Calculate time since program step has started
             t2 = _time.time() - self.t1
             
-            # Update the program progress counter in the GUI
-            self.program_progress.set_value("%.2f %%"%(100*t2/self.program_length))
             
             if self.program_time.get_value()- t2 > 0:
-                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600-t2)
+                
+                self.program_time.set_value(self.loaded_program.get_duration()*3600-t2)
                 self._increment_temperature(T, S, t2)
+                
+                # Update the program progress counter in the GUI
+                self.program_progress.set_value("%.2f %%"%(100*t2/self.loaded_program.get_length()))
                    
-            else:
+            elif self.loaded_program.check_next():
+                
                 # Move to the next program step
-                self.step_index += 1
+                self.loaded_program.increment_step()
                 
                 # Get a new time reference for the start of the step
                 self.t1 = _time.time()
                 
                 # Update the step number in the GUI
-                self.step_number.set_value( "%d/%d"%(self.step_index+1, len(self.loaded_program)) )
+                self.step_number.set_value( "%d/%d"%(self.loaded_program.get_step_index(),self.loaded_program.get_size()) )
                 
                 # Update the step time in the GUI
-                self.program_time.set_value(self.loaded_program[self.step_index][2]*3600)
+                self.program_time.set_value(self.loaded_program.get_duration()*3600)
                 
-                if self.loaded_program[self.step_index][0] == "Ramp":
+                if self.loaded_program.get_operation() == "Ramp":
                     self.operation.set_value("Ramp")
                     
-                    self.dT = self.loaded_program[self.step_index][1] - T
-                    self.step_time =  self.loaded_program[self.step_index][2]*3600 / (self.dT * 10.0)
+                    self.dT = self.loaded_program.get_temperature() - T
+                    self.step_time =  self.loaded_program.get_duration()*3600 / (self.dT * 10.0)
             
                 else:
                     self.operation.set_value("Soak")
-       
+                    
+                # Update the program progress counter in the GUI
+                self.program_progress.set_value("%.2f %%"%(100*t2/self.loaded_program_length))
+                
     def _increment_temperature(self, T, S, t2):
         
-        if self.loaded_program[self.step_index][0] == "Ramp":
+        if self.loaded_program.get_operation()== "Ramp":
             
             if(t2 > self.t_next):
                 self.number_setpoint.set_value(S+.1)
                 self.t_next = self.t_next + self.step_time
         else:
-            self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
+            self.number_setpoint.set_value(self.loaded_program.get_temperature())
          
     def _after_button_connect_toggled(self):
         """
@@ -640,7 +639,51 @@ class auber_syl53x2p(serial_gui_base):
             self.label_temperature_status('(disconnected)')
             self.timer.stop()
         
-
+class program():
+    def __init__(self, name):
+        self.name  = name
+        self.steps = program_set[name]
+        
+        self.loaded_step = self.steps[0]
+        self.loaded_step_index = 0
+        self.size = len(self.steps)
+        self.length = 0
+        
+        for i in range(self.size):
+                            
+            # Add the length of this step to the total program length
+            self.length += self.steps[i][2]*3600
+    
+    def get_operation(self):
+        return self.loaded_step[0]
+    
+    def get_temperature(self):
+        return self.loaded_step[1]
+    
+    def get_duration(self):
+        return self.loaded_step[2]
+    
+    def get_size(self):
+        return self.size
+    
+    def increment_step(self):
+        self.loaded_step = self.steps[self.loaded_step_index+1]
+        self.loaded_step_index += 1
+        
+    def get_step(self,i):
+        return self.steps[i]
+    
+    def get_length(self):
+        return self.length  
+    
+    def get_step_index(self):
+        return self.loaded_step_index
+    
+    def check_next(self):
+        if self.loaded_step_index < self.size - 1:
+            return True
+        else:
+            return False
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
