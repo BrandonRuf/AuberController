@@ -4,6 +4,7 @@ _p = _traceback.print_last
 _g = _egg.gui
 import spinmob as _s
 import time as _time
+import json
 
 import serial as _serial
 from serial.tools.list_ports import comports as _comports
@@ -15,6 +16,15 @@ _s.settings['dark_theme_qt'] = True
 style_1 = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
 style_2 = 'font-size: 17pt; font-weight: bold; color: '+('white'             if _s.settings['dark_theme_qt'] else 'red')
 style_3 = 'font-size: 17pt; font-weight: bold; color: '+('cyan'              if _s.settings['dark_theme_qt'] else 'purple')
+
+
+
+try: 
+    with open('program_list.json') as f:
+        program_set = json.load(f) 
+except:
+    print("No existing program list.")
+    program_set = dict() 
 
 def get_com_ports():
     """
@@ -48,19 +58,24 @@ def list_com_ports():
 class serial_gui_base(_g.BaseObject):
     """
     Base class for creating a serial connection gui. Handles common controls.
+    
     Parameters
     ----------
     api_class=None : class
         Class to use when connecting. For example, api_class=auber_syl53x2p_api would
         work. Note this is not an instance, but the class itself. An instance is
         created when you connect and stored in self.api.
+        
     name='serial_gui' : str
         Unique name to give this instance, so that its settings will not
         collide with other egg objects.
+        
     show=True : bool
         Whether to show the window after creating.
+        
     block=False : bool
         Whether to block the console when showing the window.
+        
     window_size=[1,1] : list
         Dimensions of the window.
     hide_address=False: bool
@@ -111,10 +126,17 @@ class serial_gui_base(_g.BaseObject):
             for p in _comports():
                 self._ports.append(p.device)
                 ports      .append(p.description)
-
+        
+        # Append simulation port
         ports      .append('Simulation')
         self._ports.append('Simulation')
+        
+        # Append refresh port
+        ports      .append('Refresh - Update Ports List')
+        self._ports.append('Refresh - Update Ports List')
+        
         self.combo_ports = self.grid_top.add(_g.ComboBox(ports, autosettings_path=name+'.combo_ports'))
+        self.combo_ports.signal_changed.connect(self._ports_changed)
 
         self.grid_top.add(_g.Label('Address:')).show(hide_address)
         self.number_address = self.grid_top.add(_g.NumberBox(
@@ -162,7 +184,53 @@ class serial_gui_base(_g.BaseObject):
 
         # Show the window.
         if show: self.window.show(block)
+    
+    def _ports_changed(self):
+        """
+        Refreshes the list of availible serial ports in the GUI.
 
+        """
+        if self.get_selected_port() == 'Refresh - Update Ports List':
+            
+            len_ports = len(self.combo_ports.get_all_items())
+            
+            # Clear existing ports
+            if(len_ports > 1): # Stop recursion!
+                for n in range(len_ports):
+                    self.combo_ports.remove_item(0)
+            else:
+                return
+                self.combo_ports.remove_item(0)
+                 
+            self._ports = [] # Actual port names for connecting
+            ports       = [] # Pretty port names for combo box
+                
+            default_port = 0
+             
+            # Get all the available ports
+            if _comports:
+                for inx, p in enumerate(_comports()):
+                    self._ports.append(p.device)
+                    ports      .append(p.description)
+                    
+                    if 'Arduino' in p.description:
+                        default_port = inx
+                        
+            # Append simulation port
+            ports      .append('Simulation')
+            self._ports.append('Simulation')
+            
+            # Append refresh port
+            ports      .append('Refresh - Update Ports List')
+            self._ports.append('Refresh - Update Ports List')
+             
+            # Add the new list of ports
+            for item in ports:
+                self.combo_ports.add_item(item)
+             
+            # Set the new default port
+            self.combo_ports.set_index(default_port)
+    
     def _button_connect_toggled(self, *a):
         """
         Connect by creating the API.
@@ -348,7 +416,7 @@ class auber_syl53x2p(serial_gui_base):
             self.program[i]['operation']   = self.tab_program.add(_g.ComboBox(["--","Ramp","Soak"]),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
             
             self.tab_program.add(_g.Label('Temperature:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: cyan')
+            self.program[i]['temperature'] = self.tab_program.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=1).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: cyan')
             
             self.tab_program.add(_g.Label('Duration:'),alignment=1).set_style('font-size: 12pt; font-weight: bold; color: gold')
             self.program[i]['time']        = self.tab_program.add(_g.NumberBox(2.50, bounds=(0,1000.), suffix='h'),alignment=1).set_width(75).set_style('font-size: 12pt; font-weight: bold; color: gold')
@@ -359,7 +427,7 @@ class auber_syl53x2p(serial_gui_base):
     
         
         self.grid_program.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-        self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(120).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+        self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
         
         
         self.grid_program.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
@@ -368,7 +436,7 @@ class auber_syl53x2p(serial_gui_base):
         self.grid_program.new_autorow()
         
         self.grid_program.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-        self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(80).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+        self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
         
         self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
         self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
@@ -402,7 +470,7 @@ class auber_syl53x2p(serial_gui_base):
             self.program_length = 0
             
             # Setup all the program steps being used
-            for i in range( len(self.loaded_program.keys()) ):
+            for i in range( len(self.loaded_program) ):
                 
                 # Get next program step
                 step = self.loaded_program[i]
@@ -437,7 +505,7 @@ class auber_syl53x2p(serial_gui_base):
             
             # Update the GUI data boxes with the current program info
             self.program_running.set_value(_program_name)
-            self.step_number    .set_value("1/%d"%len(self.loaded_program.keys()))
+            self.step_number    .set_value("1/%d"%len(self.loaded_program))
             self.operation      .set_value(self.loaded_program[0][0])
             self.program_time   .set_value(self.loaded_program[0][2]*3600)
                
@@ -519,7 +587,7 @@ class auber_syl53x2p(serial_gui_base):
                 self.t1 = _time.time()
                 
                 # Update the step number in the GUI
-                self.step_number.set_value( "%d/%d"%(self.step_index+1, len(self.loaded_program.keys())) )
+                self.step_number.set_value( "%d/%d"%(self.step_index+1, len(self.loaded_program)) )
                 
                 # Update the step time in the GUI
                 self.program_time.set_value(self.loaded_program[self.step_index][2]*3600)
@@ -532,8 +600,6 @@ class auber_syl53x2p(serial_gui_base):
             
                 else:
                     self.operation.set_value("Soak")
-                    
-                
        
     def _increment_temperature(self, T, S, t2):
         
@@ -544,8 +610,7 @@ class auber_syl53x2p(serial_gui_base):
                 self.t_next = self.t_next + self.step_time
         else:
             self.number_setpoint.set_value(self.loaded_program[self.step_index][1])
-        
-        
+         
     def _after_button_connect_toggled(self):
         """
         Called after the connection or disconnection routine.
@@ -570,44 +635,7 @@ class auber_syl53x2p(serial_gui_base):
             self.label_temperature_status('(disconnected)')
             self.timer.stop()
         
-        
-program_set = dict()        
-        
-def program(name, operation):
-    if name in program_set.keys():
-        myprogram = program_set[name]
-        numbers = list(myprogram)
-        myprogram[numbers[-1]+1] = operation
-    else:
-        program_set[name] = dict()
-        program_set[name][0] = operation
 
-
-program("YBa2Cu3O7-x",['Ramp',950, 0.1])
-program("YBa2Cu3O7-x",['Soak',950, 2])
-program("YBa2Cu3O7-x",['Ramp',800, 2])
-program("YBa2Cu3O7-x",['Ramp',300, 10])
-program("YBa2Cu3O7-x",['Ramp',25, 4])
-
-# for EuMnSb2 growth 23-Oct-2020 - NOT WHAT WAS USED!
-program("EuMnSb2",['Ramp',650,3])
-program("EuMnSb2",['Soak',650,1])
-program("EuMnSb2",['Ramp',900,3])
-program("EuMnSb2",['Soak',900,75])
-program("EuMnSb2",['Ramp',20,3])
-
-
-program("GaAs",['Ramp', 50, 0.12])
-program("GaAs",["Soak", 50, 0.13])
-program("GaAs",["Ramp", 34, 0.1])
-program("GaAs",["Ramp", 25, .5])
-
-program("(δ-phase) Pu-Ga",['Ramp', 639.4, 1])
-program("(δ-phase) Pu-Ga",["Soak", 639.4, .3])
-program("(δ-phase) Pu-Ga",["Ramp", 25, 1])
-
-
-                 
 
 if __name__ == '__main__':
     _egg.clear_egg_settings()
