@@ -1,26 +1,59 @@
-import spinmob.egg   as _egg
-import spinmob       as _s
-import time          as _time
-import os            as _os
-import serial        as _serial
-
+import spinmob.egg as _egg
+import traceback as _traceback
+_p = _traceback.print_last
 _g = _egg.gui
+import spinmob as _s
+import time as _time
+import json
 
+import serial as _serial
 from serial.tools.list_ports import comports as _comports
-from auber_controller_api    import auber_syl53x2p_api
+from auber_controller_api import auber_syl53x2p_api
 
-# GUI settings
+# Dark theme
 _s.settings['dark_theme_qt'] = True
 
-# Defined fonts
 style_1 = 'font-size: 14pt; font-weight: bold; color: '+('mediumspringgreen' if _s.settings['dark_theme_qt'] else 'blue')
 style_2 = 'font-size: 17pt; font-weight: bold; color: '+('white'             if _s.settings['dark_theme_qt'] else 'red')
 style_3 = 'font-size: 17pt; font-weight: bold; color: '+('cyan'              if _s.settings['dark_theme_qt'] else 'purple')
 
-# 
-PROGRAM_STEPS = 10
-PROGRAM_DIR   = 'Programs'
 
+
+try: 
+    with open('program_list.json') as f:
+        program_set = json.load(f) 
+except:
+    print("No existing program list.")
+    program_set = dict() 
+
+def get_com_ports():
+    """
+    Returns a dictionary of port names as keys and descriptive names as values.
+    """
+    if _comports:
+
+        ports = dict()
+        for p in _comports(): ports[p.device] = p.description
+        return ports
+
+    else:
+        raise Exception('You need to install pyserial and have Windows to use get_com_ports().')
+
+def list_com_ports():
+    """
+    Prints a "nice" list of available COM ports.
+    """
+    ports = get_com_ports()
+
+    # Empty dictionary is skipped.
+    if ports:
+        keys = list(ports.keys())
+        keys.sort()
+        print('Available Ports:')
+        for key in keys:
+            print(' ', key, ':', ports[key])
+
+    else: raise Exception('No ports available. :(')
 
 class serial_gui_base(_g.BaseObject):
     """
@@ -69,6 +102,21 @@ class serial_gui_base(_g.BaseObject):
         # Top of GUI (Serial Communications)
         self.grid_top = self.window.place_object(_g.GridLayout(margins=False), alignment=0)
         self.window.new_autorow()
+        
+        # Middle of GUI (Basic numerical data readout)
+        self.grid_mid = self.window.place_object(_g.GridLayout(margins=False), alignment=1,column_span=1)
+        self.window.new_autorow()
+        
+        #
+        self.grid_program = self.window.place_object(_g.GridLayout(margins=False), alignment=1)
+        self.window.new_autorow()
+        
+        #
+        self.grid_mode = self.window.place_object(_g.GridLayout(margins=False), alignment=1)
+        self.window.new_autorow()
+        
+        # Bottom of GUI (Graphical data plotting) 
+        self.grid_bot = self.window.place_object(_g.GridLayout(margins=False), alignment=0)
 
         # Get all the available ports
         self._label_port = self.grid_top.add(_g.Label('Port:'))
@@ -117,8 +165,12 @@ class serial_gui_base(_g.BaseObject):
         # Status
         self.label_status = self.grid_top.add(_g.Label(''))
 
+        # By default the bottom grid is disabled
+        self.grid_bot.disable()
+
         # Expand the bottom grid
         self.window.set_row_stretch(1)
+        
         
         # Error
         self.grid_top.new_autorow()
@@ -256,42 +308,13 @@ class serial_gui_base(_g.BaseObject):
         Returns the actual port string from the combo box.
         """
         return self._ports[self.combo_ports.get_index()]
-    
-    def get_com_ports():
-        """
-        Returns a dictionary of port names as keys and descriptive names as values.
-        """
-        if _comports:
-    
-            ports = dict()
-            for p in _comports(): ports[p.device] = p.description
-            return ports
-    
-        else:
-            raise Exception('You need to install pyserial and have Windows to use get_com_ports().')
-            
-    def list_com_ports():
-        """
-        Prints a "nice" list of available COM ports.
-        """
-        ports = get_com_ports()
-    
-        # Empty dictionary is skipped.
-        if ports:
-            keys = list(ports.keys())
-            keys.sort()
-            print('Available Ports:')
-            for key in keys:
-                print(' ', key, ':', ports[key])
-    
-        else: raise Exception('No ports available. :(')
 
 class auber_syl53x2p(serial_gui_base):
     """
     Graphical interface for the Auber SYL-53X2P temperature controller.
-    
     Parameters
     ----------
+    
     name='auber_syl53x2p' : str
         Unique name to give this instance, so that its settings will not
         collide with other egg objects.
@@ -318,19 +341,112 @@ class auber_syl53x2p(serial_gui_base):
         
         self.window.set_size([0,0])
         
-        # Dictionary holding the full set of programs
-        self.program_set = dict()
+        # Add NumberBox for the current measured temperature from the Auber
+        self.grid_mid.add(_g.Label('Measured Temperature:'), alignment=1).set_style(style_2)
         
-        # Load in all programs
-        self.load_program_set()
+        self.number_temperature = self.grid_mid.add(_g.NumberBox(
+            value=-273.16, suffix='°C', tip='Last recorded temperature value.'),
+            alignment=1).set_width(175).disable().set_style(style_2)
+        
+        # New row
+        self.grid_mid.new_autorow()
+
+        # Add NumberBox of the Auber's current setpoint temperature 
+        self.grid_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style('font-size: 17pt; font-weight: bold; color: cyan')
+
+        self.number_setpoint = self.grid_mid.add(_g.NumberBox(
+            -273.16, bounds=(-273.16, temperature_limit), suffix='°C',
+            signal_changed=self._number_setpoint_changed)
+            ).set_width(175).set_style('font-size: 17pt; font-weight: bold; color: cyan').disable()
+        
+        self.label_temperature_status = self.grid_mid.add(_g.Label(
+            ''), column = 2, row_span=2).set_style(style_3)  
+        
+        # Add a tabs section in the bottom grid
+        self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
+        
+        # Create main tab
+        self.tab_main  = self.tabs.add_tab('Main')
+
+        # Add data plotting to main tab
+        self.plot = self.tab_main.add(_g.DataboxPlot(
+            file_type='*.csv',
+            autosettings_path=name+'.plot',
+            delimiter=',', show_logger=True), alignment=0, column_span=10)
+        
+        # Timer for collecting data
+        self.timer = _g.Timer(interval_ms=1000, single_shot=False)
+        self.timer.signal_tick.connect(self._timer_tick)
+
+        # Bottom log file controls
+        self.tab_main.new_autorow()
+
+        # Finally show it.
+        self.window.show(block)
+        
+        # Create a new tab to hold program setpoint control
+        self.tab_program = self.tabs.add_tab('Program')
+        
+        # Pop tab from the main GUI
+        poped_tab = self.tabs.pop_tab(1)
+        poped_tab.hide()
+        
+        # Top grid of the "Program" tab
+        self.tab_program_top = self.tab_program.place_object(_g.GridLayout(margins=False))
+        
+        # Add program selector
+        self.tab_program_top.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: lavender')
+        
+        self.combo_program = self.tab_program_top.add(_g.ComboBox(['Custom']+list(program_set.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: lavender')
+        self.combo_program.signal_changed.connect(self._combo_program_changed)
+        
+        # Add "Run" button for program activation
+        self.button_run = self.tab_program_top.add(_g.Button('Run', checkable=True).set_height(27))
+        self.button_run.signal_toggled.connect(self._button_run_toggled)
+        
+        
+        # New row
+        self.tab_program.new_autorow()
+        
+        # Bottom grid of the "Program" tab
+        self.tab_program_bot = self.tab_program.place_object(_g.GridLayout(margins=False))
         
         # Dictionary for holding program information
         self.program = dict()
         
-        self.gui_components(name)
+        # Create 10 program steps 
+        for i in range(10):
+            self.program[i] = dict()      
+            
+            self.tab_program_bot.add(_g.Label('Step %d:'%i),alignment=0).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: pink')
+            self.program[i]['operation']   = self.tab_program_bot.add(_g.ComboBox(["--","Ramp","Soak"]),alignment = 0).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
+            
+            self.tab_program_bot.add(_g.Label('Temperature:'),alignment=0).set_style('font-size: 12pt; font-weight: bold; color: cyan')
+            self.program[i]['temperature'] = self.tab_program_bot.add(_g.NumberBox(24.5, bounds=(-273.16, temperature_limit), suffix='°C'),alignment=0).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: cyan')
+            
+            self.tab_program_bot.add(_g.Label('Duration:'),alignment=2).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            self.program[i]['time']        = self.tab_program_bot.add(_g.NumberBox(200.5, bounds=(0,1000.), suffix='h'),alignment=2).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
+            
+            if i < 9: self.tab_program_bot.new_autorow()
+
         
-        # Finally show it.
-        self.window.show(block)
+        self.grid_program.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
+        self.program_running = self.grid_program.add(_g.TextBox(self.combo_program.get_text()),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+        
+        
+        self.grid_program.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
+        self.program_progress = self.grid_program.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+        
+        self.grid_program.new_autorow()
+        
+        self.grid_program.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
+        self.step_number = self.grid_program.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+        
+        self.grid_program.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
+        self.operation = self.grid_program.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+        
+        self.grid_program.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
+        self.program_time = self.grid_program.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
     def _combo_program_changed(self):
         "Called when the program selector tab is changed"
@@ -340,7 +456,7 @@ class auber_syl53x2p(serial_gui_base):
         _program_name = self.combo_program.get_text()
         
         if  _program_name == "Custom":
-            for i in range(PROGRAM_STEPS):
+            for i in range(10):
                 self.program[i]['operation']  .enable()
                 self.program[i]['temperature'].enable()
                 self.program[i]['time']       .enable()
@@ -349,9 +465,11 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['temperature'].set_value(24)
                 self.program[i]['time']       .set_value(200.5)
             
+            # Enable the program text box
+            self.program_running.enable()
         else:    
             # Load in the selected program
-            self.loaded_program = program(_program_name, self.program_set)
+            self.loaded_program = program(_program_name)
             
             # Setup all the program steps being used
             for i in range(self.loaded_program.get_size()):
@@ -387,6 +505,9 @@ class auber_syl53x2p(serial_gui_base):
             self.step_number    .set_value("1/%d"%self.loaded_program.get_size())
             self.operation      .set_value(self.loaded_program.get_operation())
             self.program_time   .set_value(self.loaded_program.get_duration()*3600)
+            
+            # Disable the program text box
+            self.program_running.disable()
         
         # Set the program name in the GUI
         self.program_running.set_value(_program_name)
@@ -406,21 +527,12 @@ class auber_syl53x2p(serial_gui_base):
             #
             self.t_next = self.step_time
             
-            self.label_program_status.set_text("(Running)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
-            
         else:
             # Reset the "Run" button colors
             self.button_run.set_colors(text = '', background = '')
             
             # Re-enable the program selector
             self.combo_program.enable()
-            
-            self.label_program_status.set_text("(Idle)").set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
-    
-    def _button_save_clicked(self):
-        # Turn the "Run" button green to show that the program is running
-        self.button_save.set_colors(text = 'white', background="red")
-        return 
     
     def _number_setpoint_changed(self, *a):
         """
@@ -428,31 +540,7 @@ class auber_syl53x2p(serial_gui_base):
         """
         # Set the temperature setpoint
         self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
-        
-    def _after_button_connect_toggled(self):
-        """
-        Called after the connection or disconnection routine.
-        """
-        if self.button_connect.is_checked():
-    
-            # Get the setpoint
-            try:
-                self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
-                self.timer.start()
-                
-                # Bring the hidden program tab into the GUI
-                if 1 in self.tabs.popped_tabs: self.tabs.unpop_tab(1)
-                
-            except:
-                self.number_setpoint.set_value(0)
-                self.button_connect.set_checked(False)
-                self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
-        
-        # Disconnected
-        else:
-            self.label_temperature_status('(disconnected)')
-            self.timer.stop()
-    
+
     def _timer_tick(self, *a):
         """
         Called whenever the timer ticks. Let's update the plot and save the latest data.
@@ -476,7 +564,7 @@ class auber_syl53x2p(serial_gui_base):
         self.number_temperature(T)
         
         # 
-        #self.label_temperature_status.set_text('')
+        self.label_temperature_status.set_text('')
         
         # Update the GUI
         self.window.process_events()
@@ -532,152 +620,34 @@ class auber_syl53x2p(serial_gui_base):
                 self.t_next = self.t_next + self.step_time
         else:
             self.number_setpoint.set_value(self.loaded_program.get_temperature())
-        
-    def gui_components(self,name):
-        # Upper middle of GUI - Basic numerical data readout (Temperature)
-        self.grid_upper_mid = self.window.place_object(_g.GridLayout(margins=False), alignment=1,column_span=1)
-        self.window.new_autorow()
-        
-        # Lower middle of GUI - Program parameter readout
-        self.grid_lower_mid = self.window.place_object(_g.GridLayout(margins=False), alignment=1)
-        self.window.new_autorow()
-        
-        # Bottom of GUI - Tabs
-        self.grid_bot = self.window.place_object(_g.GridLayout(margins=False), alignment=0)
-        
-        # By default the bottom grid is disabled
-        self.grid_bot.disable()
-        
-        # Add NumberBox and label for the current measured temperature from the Auber
-        self.grid_upper_mid.add(_g.Label('Measured Temperature:'), alignment=1).set_style(style_2)
-        
-        self.number_temperature = self.grid_upper_mid.add(_g.NumberBox(
-            value=-273.16, suffix='°C', tip='Last recorded temperature value.'),
-            alignment=1).set_width(175).disable().set_style(style_2)
-        
-        #
-        self.label_temperature_status = self.grid_upper_mid.add(_g.Label(name),
-            column = 2, row_span=2).set_style('font-size: 15pt; font-weight: bold; color: '+('lightcoral'))
-        
-        # New row
-        self.grid_upper_mid.new_autorow()
-
-        # Add NumberBox and label of the Auber's current setpoint temperature 
-        self.grid_upper_mid.add(_g.Label('Setpoint Temperature:'), alignment=1).set_style('font-size: 17pt; font-weight: bold; color: cyan')
-
-        self.number_setpoint = self.grid_upper_mid.add(_g.NumberBox(
-            -273.16, bounds=(-273.16, self._temperature_limit), suffix='°C',
-            signal_changed=self._number_setpoint_changed)
-            ).set_width(175).set_style('font-size: 17pt; font-weight: bold; color: cyan').disable()
-        
-        # Label and TextBox for displaying the current loaded program 
-        self.grid_lower_mid.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-        self.program_running = self.grid_lower_mid.add(_g.TextBox('Custom'),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
-        
-        # Label and TextBox for displaying the progression of the current program (in percent)
-        self.grid_lower_mid.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self.program_progress = self.grid_lower_mid.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
-        
-        self.label_program_status = self.grid_lower_mid.add(_g.Label("(Idle)"),alignment=1,column_span=2).set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
-        
-        # New Row
-        self.grid_lower_mid.new_autorow()
-        
-        # Label and TextBox for displaying the current program step 
-        self.grid_lower_mid.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-        self.step_number = self.grid_lower_mid.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
-        
-        # Label and TextBox for displaying the current program operation 
-        self.grid_lower_mid.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-        self.operation = self.grid_lower_mid.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
-        
-        # Label and TextBox for displaying the remaining time in current program step 
-        self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.program_time = self.grid_lower_mid.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
-        
+         
+    def _after_button_connect_toggled(self):
         """
-        self.az_5 = self.grid_lower_mid.add(_g.Button('AZ-5',
-                    tip = "SCRAMS the controller entirely, bringing setpoint to room temperature and bringing output power to zero.").set_height(25),
-                                    alignment = 2)
+        Called after the connection or disconnection routine.
         """
-        # Add tabs to the bottom grid
-        self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
-        
-        # Create main tab
-        self.tab_main  = self.tabs.add_tab('Main')
+        if self.button_connect.is_checked():
 
-        # Add data plotting to main tab
-        self.plot = self.tab_main.add(_g.DataboxPlot(
-            file_type='*.csv',
-            autosettings_path=name+'.plot',
-            delimiter=',', show_logger=True), alignment=0, column_span=10)
-        
-        # Timer for collecting data
-        self.timer = _g.Timer(interval_ms=1000, single_shot=False)
-        self.timer.signal_tick.connect(self._timer_tick)
-
-        # Bottom log file controls
-        self.tab_main.new_autorow()
-        
-        # Create a tab for program setpoint control
-        self.tab_program = self.tabs.add_tab('Program')
-        
-        # Pop tab from the main GUI (This is done for aesthetic sizing reasons)
-        poped_tab = self.tabs.pop_tab(1)
-        poped_tab.hide()
-        
-        # Top grid of the "Program" tab
-        self.tab_program_top = self.tab_program.place_object(_g.GridLayout(margins=False))
-        
-        # Add program selector label and ComboBox
-        self.tab_program_top.add(_g.Label('Program:'),alignment=1).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: lavender')
-        
-        self.combo_program = self.tab_program_top.add(_g.ComboBox(['Custom']+list(self.program_set.keys())),alignment=1).set_width(150).set_style('font-size: 12pt; font-weight: bold; color: lavender')
-        self.combo_program.signal_changed.connect(self._combo_program_changed)
-        
-        # Add "Run" button for program activation
-        self.button_run = self.tab_program_top.add(_g.Button('Run', checkable=True).set_height(27))
-        self.button_run.signal_toggled.connect(self._button_run_toggled)
-        
-        # Add "Save" button for saving new programs
-        self.button_save = self.tab_program_top.add(_g.Button('Save', checkable=True).set_height(27))
-        self.button_save.signal_clicked.connect(self._button_save_clicked)
-        
-        # New row
-        self.tab_program.new_autorow()
-        
-        # Bottom grid of the "Program" tab
-        self.tab_program_bot = self.tab_program.place_object(_g.GridLayout(margins=False))
-        
-        # Create program step entries 
-        for i in range(PROGRAM_STEPS):
-            self.program[i] = dict()      
-            
-            self.tab_program_bot.add(_g.Label('Step %d:'%i),alignment=0).set_width(120).set_style('font-size: 12pt; font-weight: bold; color: pink')
-            self.program[i]['operation']   = self.tab_program_bot.add(_g.ComboBox(["--","Ramp","Soak"]),alignment = 0).set_width(125).set_style('font-size: 12pt; font-weight: bold; color: paleturquoise')
-            
-            self.tab_program_bot.add(_g.Label('Temperature:'),alignment=0).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            self.program[i]['temperature'] = self.tab_program_bot.add(_g.NumberBox(24.5, bounds=(-273.16, self._temperature_limit), suffix='°C'),alignment=0).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: cyan')
-            
-            self.tab_program_bot.add(_g.Label('Duration:'),alignment=2).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            self.program[i]['time']        = self.tab_program_bot.add(_g.NumberBox(200.5, bounds=(0,1000.), suffix='h'),alignment=2).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
-            
-            if i < (PROGRAM_STEPS-1): self.tab_program_bot.new_autorow()
-            
-    def load_program_set(self):
-        for file in _os.listdir(PROGRAM_DIR):
-            f = _s.data.databox().load_file(path = PROGRAM_DIR+'/'+file, quiet=True)
-            
-            self.program_set[f.h('name')] = []
-            for i in range(10):
-                operation = f.h('op%d'%i)
+            # Get the setpoint
+            try:
+                self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
+                self.program_running.enable()
+                self.timer.start()
                 
-                if operation != '':
-                    self.program_set[f.h('name')].append(operation)
-                else: break
-
+                # Bring the hidden program tab into the GUI
+                if 1 in self.tabs.popped_tabs: self.tabs.unpop_tab(1)
+                
+            except:
+                self.number_setpoint.set_value(0)
+                self.button_connect.set_checked(False)
+                self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
+        
+        # Disconnected
+        else:
+            self.label_temperature_status('(disconnected)')
+            self.timer.stop()
+        
 class program():
-    def __init__(self, name, program_set):
+    def __init__(self, name):
         self.name  = name
         self.steps = program_set[name]
         

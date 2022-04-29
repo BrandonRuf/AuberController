@@ -1,0 +1,12 @@
+name	'YBa2Cu3O7-x'
+op0	['Ramp', 50, 0.12]
+op1	['Ramp', 950, 0.1]
+op2	['Soak', 950, 2]
+op3	['Ramp', 800, 2]
+op4	['Ramp', 300, 10]
+op5	['Ramp', 25, 4]
+op6	''
+op7	''
+op8	''
+op9	''
+
