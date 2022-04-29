@@ -213,11 +213,13 @@ class serial_gui_base(_g.BaseObject):
             self.combo_baudrates.disable()
             self.combo_ports    .disable()
             self.number_timeout .disable()
+            
+            self.button_connect.set_text('Disconnect').set_colors(background = 'blue')
 
         # Otherwise, shut it down
         else:
             self.api.disconnect()
-            self.label_status.set_text('')
+            #self.label_status.set_text('')
             self.button_connect.set_colors()
             self.grid_bot.disable()
 
@@ -225,6 +227,8 @@ class serial_gui_base(_g.BaseObject):
             self.combo_baudrates.enable()
             self.combo_ports    .enable()
             self.number_timeout .enable()
+            
+            self.button_connect.set_text('Connect').set_colors(background = '')
 
 
         # User function
@@ -443,14 +447,18 @@ class auber_syl53x2p(serial_gui_base):
                 # Bring the hidden program tab into the GUI
                 if 1 in self.tabs.popped_tabs: self.tabs.unpop_tab(1)
                 
+                self.label_program_status.set_text("(Idle)")
+                
             except:
                 self.number_setpoint.set_value(0)
                 self.button_connect.set_checked(False)
-                self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
+                self.label_program_status.set_text("(Error)").set_style('font-size: 17pt; font-weight: bold; color: '+('orangered'))
+                #self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
         
         # Disconnected
         else:
-            self.label_temperature_status('(disconnected)')
+            #self.label_temperature_status('(disconnected)')
+            self.label_program_status.set_text("(Disconnected)")
             self.timer.stop()
     
     def _timer_tick(self, *a):
@@ -578,7 +586,7 @@ class auber_syl53x2p(serial_gui_base):
         self.grid_lower_mid.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
         self.program_progress = self.grid_lower_mid.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
         
-        self.label_program_status = self.grid_lower_mid.add(_g.Label("(Idle)"),alignment=1,column_span=2).set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
+        self.label_program_status = self.grid_lower_mid.add(_g.Label("(Disconnected)"),alignment=1,column_span=2).set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
         
         # New Row
         self.grid_lower_mid.new_autorow()
