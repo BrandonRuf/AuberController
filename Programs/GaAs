@@ -1,9 +1,9 @@
 name	'GaAs'
-op0	['Ramp', 50, 0.12]
-op1	['Soak', 50, 0.13]
-op2	['Ramp', 34, 0.1]
-op3	['Ramp', 25, 0.5]
-op4	''
+op0	['Ramp', 27, 0.01]
+op1	['Soak', 27, 0.015]
+op2	['Ramp', 26, 0.01]
+op3	['Soak', 26, 0.01]
+op4	['Ramp', 24.5, 0.02]
 op5	''
 op6	''
 op7	''
