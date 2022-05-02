@@ -330,16 +330,19 @@ class auber_syl53x2p(serial_gui_base):
         # Dictionary for holding program information
         self.program = dict()
         
+        # Build the GUI
         self.gui_components(name)
         
         # Finally show it.
         self.window.show(block)
+     
         
     def _combo_program_changed(self):
         "Called when the program selector tab is changed"
         
         _program_name = self.combo_program.get_text()
         
+        # Handle the "Custom" program selection individually
         if  _program_name == "Custom":
             for i in range(PROGRAM_STEPS):
                 self.program[i]['operation']  .enable()
@@ -378,18 +381,18 @@ class auber_syl53x2p(serial_gui_base):
                 self.program[i]['operation']  .disable()
                 self.program[i]['temperature'].disable()
                 self.program[i]['time']       .disable()
+                
+            # Save first step parameters
+            self.step_duration  = self.loaded_program.get_step_duration ()*3600
+            self.step_operation = self.loaded_program.get_step_operation()
             
             # Update the GUI data boxes with the current program info
-            self.step_number    .set_value("1/%d"%self.loaded_program.get_size())
-            self.operation      .set_value(self.loaded_program.get_step_operation())
-            self.program_time   .set_value(self.loaded_program.get_step_duration()*3600)
+            self._update_step(1)
+            self._update_operation(self.step_operation)
+            self._update_step_time(self.step_duration)
             
-            self.step_duration = self.loaded_program.get_step_duration()*3600
-            
-            
-        
         # Set the program name in the GUI
-        self.program_running.set_value(_program_name)
+        self._update_program(_program_name)
                
     def _button_run_toggled(self):
         if self.button_run.is_checked():
@@ -400,9 +403,15 @@ class auber_syl53x2p(serial_gui_base):
             # Disable the program selector
             self.combo_program.disable()
             
+            #
+            self.number_setpoint.disable()
+            
             # Time of program start
-            self.t1 = _time.time()
-            self.t2 = self.t1
+            self.time = _time.time()
+            
+            #
+            self.t_step    = 0 
+            self.t_program = 0
     
             # 
             self.label_program_status.set_text("(Running)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
@@ -417,19 +426,15 @@ class auber_syl53x2p(serial_gui_base):
             # Re-enable the program selector
             self.combo_program.enable()
             
+            #
+            self.number_setpoint.enable()
+            
             self.label_program_status.set_text("(Idle)").set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
     
     def _button_save_clicked(self):
         # Turn the "Run" button green to show that the program is running
         self.button_save.set_colors(text = 'white', background="red")
         return 
-    
-    def _number_setpoint_changed(self, *a):
-        """
-        Called when someone changes the number.
-        """
-        # Set the temperature setpoint
-        self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
         
     def _after_button_connect_toggled(self):
         """
@@ -440,6 +445,7 @@ class auber_syl53x2p(serial_gui_base):
             # Get the setpoint
             try:
                 self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
+                self.number_setpoint.enable()
                 self.timer.start()
                 
                 # Bring the hidden program tab into the GUI
@@ -455,17 +461,43 @@ class auber_syl53x2p(serial_gui_base):
         
         # Disconnected
         else:
-            #self.label_temperature_status('(disconnected)')
             self.label_program_status.set_text("(Disconnected)")
+            self.number_setpoint.disable()
             self.timer.stop()
+    
+    
+    def _number_setpoint_changed(self, *a):
+        """
+        Called when someone changes the number.
+        """
+        # Set the temperature setpoint
+        self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
+
+
+    def _update_progress(self):
+        self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
+    
+    def _update_step_time(self, t):
+        self.number_step_time.set_value(t)
+
+    def _update_step(self, n):
+        self.textbox_step.set_value("%d/%d"%(n,self.loaded_program.get_size()) )
+    
+    def _update_operation(self, _operation):
+        self.textbox_operation.set_value(_operation)
+        
+    def _update_program(self, name):
+        self.textbox_program.set_value(name)
+        
     
     def _timer_tick(self, *a):
         """
         Called whenever the timer ticks. Let's update the plot and save the latest data.
         """
-            
+        current_time = _time.time()
+        
         # Get the time, temperature, and setpoint
-        t = _time.time()-self.t0
+        t = current_time - self.t0
         T = self.api.get_temperature()
         S = self.api.get_temperature_setpoint()
         P = self.api.get_main_output_power()    
@@ -474,79 +506,18 @@ class auber_syl53x2p(serial_gui_base):
         self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
         self.plot.plot()
 
-        #
-        self._program_increment(T,S)
-                
         # Update the temperature data box
         self.number_temperature(T)
         
+        if self.button_run.is_checked():
+            self.dt  = current_time - self.time 
+            self.time = current_time
+        
+            # Increment the active program
+            self.program_increment(S)
+                
         # Update the GUI
         self.window.process_events()
-    
-    def _program_increment(self, T, S):
-        
-        if self.button_run.is_checked():
-            
-            t_current = _time.time()
-            
-            # Calculate time since program step has started
-            t_step    = t_current - self.t1
-            
-            # Calculate time since program has started
-            t_program = t_current - self.t2
-
-            
-            if self.step_duration - t_step + 1 > 0:
-                
-                if self.step_duration - t_step < 0:
-                    self.program_time.set_value(0.)
-                else:
-                    self.program_time.set_value(self.step_duration - t_step)
-                
-                self._increment_temperature(T,t_step)
-                
-                # Update the program progress counter in the GUI
-                self.program_progress.set_value("%.2f %%"%(100*t_program/self.loaded_program.get_length()))
-                   
-            elif self.loaded_program.check_next():
-                
-                # Move to the next program step
-                self.loaded_program.increment_step()
-                
-                # Get a new time reference for the start of the step
-                self.t1 = _time.time()
-                
-                # Update the step number in the GUI
-                self.step_number.set_value("%d/%d"%(self.loaded_program.get_step_index()+1,self.loaded_program.get_size()) )
-                
-                #
-                self.step_duration = self.loaded_program.get_step_duration()*3600
-                
-                # Update the step time in the GUI
-                self.program_time.set_value(self.step_duration)
-                
-                #
-                self.operation.set_value(self.loaded_program.get_step_operation())
-                    
-                # Update the program progress counter in the GUI
-                self.program_progress.set_value("%.2f %%"%(100*t_program/self.loaded_program.get_length()))
-            else:
-                self.label_program_status.set_text("Completed")   
-            
-    def _increment_temperature(self, T, t):
-        """
-
-        Parameters
-        ----------
-        T : float
-            Current Temperature.
-        t : float
-            Time since the start of the current program step.
-        """
-        new_temperature = self.loaded_program.get_next_temperature(t)
-    
-        if(T != new_temperature):
-            self.number_setpoint.set_value(new_temperature)
     
     def gui_components(self,name):
         # Upper middle of GUI - Basic numerical data readout (Temperature)
@@ -587,11 +558,11 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the current loaded program 
         self.grid_lower_mid.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-        self.program_running = self.grid_lower_mid.add(_g.TextBox('Custom'),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+        self.textbox_program = self.grid_lower_mid.add(_g.TextBox('Custom'),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
         
         # Label and TextBox for displaying the progression of the current program (in percent)
         self.grid_lower_mid.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self.program_progress = self.grid_lower_mid.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+        self._textbox_progress = self.grid_lower_mid.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
         
         self.label_program_status = self.grid_lower_mid.add(_g.Label("(Disconnected)"),alignment=1,column_span=2).set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
         
@@ -600,15 +571,15 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the current program step 
         self.grid_lower_mid.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-        self.step_number = self.grid_lower_mid.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+        self.textbox_step = self.grid_lower_mid.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
         
         # Label and TextBox for displaying the current program operation 
         self.grid_lower_mid.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-        self.operation = self.grid_lower_mid.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+        self.textbox_operation = self.grid_lower_mid.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
         
         # Label and TextBox for displaying the remaining time in current program step 
         self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.program_time = self.grid_lower_mid.add(_g.NumberBox(1102,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+        self.number_step_time = self.grid_lower_mid.add(_g.NumberBox(10002,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
         """
         self.az_5 = self.grid_lower_mid.add(_g.Button('AZ-5',
@@ -678,7 +649,66 @@ class auber_syl53x2p(serial_gui_base):
             self.program[i]['time']        = self.tab_program_bot.add(_g.NumberBox(200.5, bounds=(0,1000.), suffix='h'),alignment=2).set_width(100).set_style('font-size: 12pt; font-weight: bold; color: gold')
             
             if i < (PROGRAM_STEPS-1): self.tab_program_bot.new_autorow()
+    
+    def program_increment(self, S):
+                    
+        # Update time since program has started
+        self.t_program +=  self.dt
         
+        # Update time since program step has started
+        self.t_step    += self.dt
+        
+        # Check if the step is still going
+        if (self.step_duration - self.t_step) > 0:
+            
+            # Update step time
+            self._update_step_time(self.step_duration - self.t_step if (self.step_duration - self.t_step) > 0 else 0)
+            
+            #
+            self.increment_setpoint(S)
+            
+            # Update the program progress counter in the GUI
+            self._update_progress()
+        
+        # Load in the next step if it exists
+        elif self.loaded_program.check_next():
+            
+            # Move to the next program step
+            self.loaded_program.increment_step()
+            
+            # Zero the step time
+            self.t_step = 0
+            
+            # Update the step number in the GUI
+            self._update_step(self.loaded_program.get_step_index()+1)
+            
+            #
+            self.step_duration = self.loaded_program.get_step_duration()*3600
+            
+            # Update the step time in the GUI
+            self._update_step_time(self.step_duration)
+            
+            #
+            self._update_operation(self.loaded_program.get_step_operation())
+                
+            # Update the program progress counter in the GUI
+            self._update_progress(t_program)
+        else:
+            self.label_program_status.set_text("Completed")   
+            
+    def increment_setpoint(self, S):
+        """
+
+        Parameters
+        ----------
+        S : float
+            Current Setpoint.
+        """
+        next_setpoint = self.loaded_program.get_next_setpoint(self.t_step)
+    
+        if(S != next_setpoint):
+            self.number_setpoint.set_value(next_setpoint)
+    
     def load_program_set(self):
         for file in _os.listdir(PROGRAM_DIR):
             f = _s.data.databox().load_file(path = PROGRAM_DIR+'/'+file, quiet=True)
@@ -763,7 +793,7 @@ class program():
             self.t_next    = self.step_time
             
         
-    def get_next_temperature(self,t):
+    def get_next_setpoint(self,t):
         if self.get_step_operation() == "Ramp":
             if t > self.t_next:
                 self.t_next   = self.t_next+self.step_time
