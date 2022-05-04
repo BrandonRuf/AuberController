@@ -1,2 +1,2 @@
 # AuberController
-Code for a graphical user interface used to interface an Auber syl53x2p temperature controller.
+Code for a graphical user interface for an Auber syl53x2p temperature controller.
