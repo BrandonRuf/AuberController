@@ -406,13 +406,21 @@ class auber_syl53x2p(serial_gui_base):
           
     def _check_program_validity(self):
         """
-        Turns on the run button if a valid program is present
+        Enables the run button if a valid program is present.
+        The save button is additionally enabled if a valid custom
+        program is present. 
 
         """
-        if self.program[0]['operation'] != 0:
-            self.button_run.enable()
+        if self.program[0]['operation'].get_text() != 0:
+            self.button_run .enable()
+            
+            if self.textbox_program.get_text() == "Custom":
+                self.button_save.enable()
+            else:
+                self.button_save.disable()
         else:
-            self.button_run.disable()
+            self.button_run .disable()
+            self.button_save.disable()
     
     def _button_run_toggled(self):
         if self.button_run.is_checked():
@@ -429,11 +437,14 @@ class auber_syl53x2p(serial_gui_base):
             # Time of program start
             self.time = _time.time()
             
-            #
-            self.t_step    = 0 
+            # Define program run time - time the current program has been running
             self.t_program = 0
+            
+            # Define program step time - time the current program STEP has been running
+            self.t_step    = 0 
+            
     
-            # 
+            # Update status label
             self.label_program_status.set_text("(Running)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
             
             if self.textbox_program.get_text() == "Custom":
@@ -539,7 +550,8 @@ class auber_syl53x2p(serial_gui_base):
     
     def _timer_tick(self, *a):
         """
-        Called whenever the timer ticks. Let's update the plot and save the latest data.
+        Called whenever the timer ticks. Updates the plot, saves the latest data,
+        and advances the program (if one is running).
         """
         current_time = _time.time()
         
@@ -556,7 +568,10 @@ class auber_syl53x2p(serial_gui_base):
         # Update the temperature data box
         self.number_temperature(T)
         
+        # If a program is running
         if self.button_run.is_checked():
+            
+            # Update time markers
             self.dt  = current_time - self.time 
             self.time = current_time
         
@@ -669,7 +684,7 @@ class auber_syl53x2p(serial_gui_base):
         self.button_run.signal_toggled.connect(self._button_run_toggled)
         
         # Add "Save" button for saving new programs
-        self.button_save = self.tab_program_top.add(_g.Button('Save', checkable=True).set_height(27))
+        self.button_save = self.tab_program_top.add(_g.Button('Save', checkable=True).set_height(27)).disable()
         self.button_save.signal_clicked.connect(self._button_save_clicked)
         
         # New row
@@ -881,6 +896,9 @@ class program():
                 self.setpoint = self.setpoint + .1*self.sgn
                 return self.setpoint
         return self.setpoint
+    
+    def save_program(self):
+        return
             
         
 if __name__ == '__main__':
