@@ -346,6 +346,9 @@ class auber_syl53x2p(serial_gui_base):
         # Get the program name
         _program_name = self.combo_program.get_text()
         
+        # Update the program name in the GUI
+        self._update_program(_program_name)
+        
         # Handle the "Custom" program selection individually
         if  _program_name == "Custom":
             
@@ -400,25 +403,26 @@ class auber_syl53x2p(serial_gui_base):
             self._update_step(1)
             self._update_operation(self.step_operation)
             self._update_step_time(self.step_duration)
-            
-        # Update the program name in the GUI
-        self._update_program(_program_name)
+        
           
     def _check_program_validity(self):
         """
         Enables the run button if a valid program is present.
         The save button is additionally enabled if a valid custom
         program is present. 
-
         """
-        if self.program[0]['operation'].get_text() != 0:
+        
+        # Check if the first operation has been set 
+        if self.program[0]['operation'].get_text() != '--':
+            
+            # Enable the run button if a valid first program operation is present
             self.button_run .enable()
             
-            if self.textbox_program.get_text() == "Custom":
-                self.button_save.enable()
-            else:
-                self.button_save.disable()
+            # Enable the save button if the run is custom
+            if self.textbox_program.get_text() == "Custom": self.button_save.enable()
+            else:                                           self.button_save.disable()
         else:
+            # Disable the run and save buttons if the first program operation is not set            
             self.button_run .disable()
             self.button_save.disable()
     
@@ -489,9 +493,27 @@ class auber_syl53x2p(serial_gui_base):
             
             self.label_program_status.set_text("(Idle)").set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
     
-    def _button_save_clicked(self):
-        # Turn the "Run" button green to show that the program is running
-        self.button_save.set_colors(text = 'white', background="red")
+    def _button_save_toggled(self):
+        
+
+            
+        self.loaded_program = program("Custom", None)
+        
+        for i in range(PROGRAM_STEPS):
+            operation = self.program[i]['operation'].get_value()
+            
+            if operation != 0:
+                new_step = []
+                
+                if   operation == 1: new_step.append("Ramp")
+                elif operation == 2: new_step.append("Soak")
+                
+                new_step.append(self.program[i]['temperature'].get_value())
+                new_step.append(self.program[i]['time'].get_value())
+                
+                self.loaded_program.add_step(new_step)
+            else: break
+        
         return 
         
     def _after_button_connect_toggled(self):
@@ -684,8 +706,8 @@ class auber_syl53x2p(serial_gui_base):
         self.button_run.signal_toggled.connect(self._button_run_toggled)
         
         # Add "Save" button for saving new programs
-        self.button_save = self.tab_program_top.add(_g.Button('Save', checkable=True).set_height(27)).disable()
-        self.button_save.signal_clicked.connect(self._button_save_clicked)
+        self.button_save = self.tab_program_top.add(_g.Button('Save').set_height(27)).disable()
+        self.button_save.signal_toggled.connect(self._button_save_toggled)
         
         # New row
         self.tab_program.new_autorow()
@@ -770,17 +792,22 @@ class auber_syl53x2p(serial_gui_base):
             self.number_setpoint.set_value(next_setpoint)
     
     def load_program_set(self):
-        for file in _os.listdir(PROGRAM_DIR):
-            f = _s.data.databox().load_file(path = PROGRAM_DIR+'/'+file, quiet=True)
+        
+        if PROGRAM_DIR in _os.listdir():
             
-            self.program_set[f.h('name')] = []
-            for i in range(10):
-                operation = f.h('op%d'%i)
-                
-                if operation != '':
-                    self.program_set[f.h('name')].append(operation)
-                else: break
-
+            for file in _os.listdir(PROGRAM_DIR):
+                f = _s.data.databox().load_file(path = PROGRAM_DIR+'/'+file, quiet=True)
+    
+                self.program_set[f.h('name')] = []
+                for i in range(10):
+                    operation = f.h('op%d'%i)
+                    
+                    if operation != '':
+                        self.program_set[f.h('name')].append(operation)
+                    else: break
+        else:
+            try: _os.mkdir(PROGRAM_DIR)
+            except: return
 
 class program():
     """
@@ -898,7 +925,14 @@ class program():
         return self.setpoint
     
     def save_program(self):
-        return
+        s = _s.data.databox()
+        s.h(name = self.name)
+        for i in range(0,self.size):
+            s.insert_header('op%d'%i, self.steps[i])
+        for j in range(self.size+1,PROGRAM_STEPS):
+            s.insert_header('op%d'%j, '')
+        s.save_file()
+        return s
             
         
 if __name__ == '__main__':
