@@ -325,7 +325,7 @@ class auber_syl53x2p(serial_gui_base):
         self.program_set = dict()
         
         # Load in all programs
-        self.load_program_set()
+        self.get_program_set()
         
         # Dictionary for holding program information
         self.program = dict()
@@ -403,8 +403,7 @@ class auber_syl53x2p(serial_gui_base):
             self._update_step(1)
             self._update_operation(self.step_operation)
             self._update_step_time(self.step_duration)
-        
-          
+              
     def _check_program_validity(self):
         """
         Enables the run button if a valid program is present.
@@ -430,7 +429,7 @@ class auber_syl53x2p(serial_gui_base):
         if self.button_run.is_checked():
             
             # Turn the "Run" button green to show that the program is running
-            self.button_run.set_colors(text = 'white', background="mediumspringgreen")
+            self.button_run.set_colors(text = 'limegreen', background='white')
             
             # Disable the program selector
             self.combo_program.disable()
@@ -495,10 +494,10 @@ class auber_syl53x2p(serial_gui_base):
     
     def _button_save_toggled(self):
         
-
-            
+        # Create a new program
         self.loaded_program = program("Custom", None)
         
+        # Get the program steps
         for i in range(PROGRAM_STEPS):
             operation = self.program[i]['operation'].get_value()
             
@@ -514,6 +513,17 @@ class auber_syl53x2p(serial_gui_base):
                 self.loaded_program.add_step(new_step)
             else: break
         
+        # Save the program
+        name = self.loaded_program.save_program()
+        
+        # Load in the new program set (that includes the newly saved program)
+        self.get_program_set()
+        
+        # Update the program selector tab
+        self._update_combo_program()
+        
+        # Set the program selector to our new program
+        self.combo_program.set_index(index = list(self.program_set.keys()).index(name)+1 )
         return 
         
     def _after_button_connect_toggled(self):
@@ -570,6 +580,13 @@ class auber_syl53x2p(serial_gui_base):
     def _update_status(self):
         return
     
+    def _update_combo_program(self):
+        for i in range(1,len(self.combo_program.get_all_items())):
+            self.combo_program.remove_item(1)
+            
+        for program in self.program_set:
+            self.combo_program.add_item(program)
+    
     def _timer_tick(self, *a):
         """
         Called whenever the timer ticks. Updates the plot, saves the latest data,
@@ -605,6 +622,7 @@ class auber_syl53x2p(serial_gui_base):
     
     
     def gui_components(self,name):
+        
         # Upper middle of GUI - Basic numerical data readout (Temperature)
         self.grid_upper_mid = self.window.place_object(_g.GridLayout(margins=False), alignment=1,column_span=1)
         self.window.new_autorow()
@@ -664,7 +682,7 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the remaining time in current program step 
         self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.number_step_time = self.grid_lower_mid.add(_g.NumberBox(10002,decimals = 4, suffix = 's',),alignment=1).set_width(130).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+        self.number_step_time = self.grid_lower_mid.add(_g.NumberBox(10002,decimals = 4, suffix = 's',),alignment=1).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
         # Add tabs to the bottom grid
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
@@ -702,12 +720,12 @@ class auber_syl53x2p(serial_gui_base):
         self.combo_program.signal_changed.connect(self._combo_program_changed)
         
         # Add "Run" button for program activation
-        self.button_run = self.tab_program_top.add(_g.Button('Run', checkable=True).set_height(27)).disable()
+        self.button_run = self.tab_program_top.add(_g.Button('Run', checkable=True).set_style('font-size: 12pt').set_height(27)).disable()
         self.button_run.signal_toggled.connect(self._button_run_toggled)
         
         # Add "Save" button for saving new programs
-        self.button_save = self.tab_program_top.add(_g.Button('Save').set_height(27)).disable()
-        self.button_save.signal_toggled.connect(self._button_save_toggled)
+        self.button_save = self.tab_program_top.add(_g.Button('Save').set_style('font-size: 12pt').set_height(27)).disable()
+        self.button_save.signal_clicked.connect(self._button_save_toggled)
         
         # New row
         self.tab_program.new_autorow()
@@ -791,7 +809,7 @@ class auber_syl53x2p(serial_gui_base):
         if(S != next_setpoint):
             self.number_setpoint.set_value(next_setpoint)
     
-    def load_program_set(self):
+    def get_program_set(self):
         
         if PROGRAM_DIR in _os.listdir():
             
@@ -926,13 +944,19 @@ class program():
     
     def save_program(self):
         s = _s.data.databox()
+        
+        result = _s._qtw.QFileDialog.getSaveFileName(directory=_os.getcwd()+'/'+PROGRAM_DIR)
+        self.name = result[0].split('/')[-1]
+        
         s.h(name = self.name)
+
         for i in range(0,self.size):
             s.insert_header('op%d'%i, self.steps[i])
-        for j in range(self.size+1,PROGRAM_STEPS):
+        for j in range(self.size,PROGRAM_STEPS):
             s.insert_header('op%d'%j, '')
-        s.save_file()
-        return s
+        s.save_file(PROGRAM_DIR+'/'+result[0].split('/')[-1])
+
+        return self.name
             
         
 if __name__ == '__main__':
