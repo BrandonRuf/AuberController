@@ -94,7 +94,7 @@ class serial_gui_base(_g.BaseObject):
 
         self.grid_top.add(_g.Label('Address:')).show(hide_address)
         self.number_address = self.grid_top.add(_g.NumberBox(
-            0, 1, int=True,
+            1, 1, int=True,
             autosettings_path=name+'.number_address',
             tip='Address (not used for every instrument)')).set_width(40).show(hide_address)
 
@@ -568,7 +568,15 @@ class auber_syl53x2p(serial_gui_base):
         self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
     
     def _update_step_time(self, t):
-        self.number_step_time.set_value(t)
+        
+        # Get number of hours 
+        hours, remainder = divmod(t,3600)
+        
+        # Get number of minutes and seconds
+        minutes, seconds = divmod(remainder, 60)
+        
+        # Update the step time textbox 
+        self.textbox_step_time.set_text("%dh %dmin %ds"%(hours, minutes, seconds))
 
     def _update_step(self, n):
         self.textbox_step.set_value("%d/%d"%(n,self.loaded_program.get_size()) )
@@ -621,7 +629,6 @@ class auber_syl53x2p(serial_gui_base):
                 
         # Update the GUI
         self.window.process_events()
-    
     
     def gui_components(self,name):
         
@@ -684,7 +691,7 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the remaining time in current program step 
         self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.number_step_time = self.grid_lower_mid.add(_g.NumberBox(10002,decimals = 4, suffix = 's',),alignment=1).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+        self.textbox_step_time = self.grid_lower_mid.add(_g.TextBox("0h 0min 0s"),alignment=1).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
         # Add tabs to the bottom grid
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
@@ -758,11 +765,14 @@ class auber_syl53x2p(serial_gui_base):
         # Update time since program step has started
         self.t_step    += self.dt
         
+        #
+        _time_remaining = self.step_duration - self.t_step
+        
         # Check if the step is still going
-        if (self.step_duration - self.t_step) > 0:
+        if  (_time_remaining > 0): 
             
             # Update step time
-            self._update_step_time(self.step_duration - self.t_step if (self.step_duration - self.t_step) > 0 else 0)
+            self._update_step_time(_time_remaining)
             
             #
             self.increment_setpoint(S)
@@ -796,7 +806,14 @@ class auber_syl53x2p(serial_gui_base):
             self._update_progress()
             
         else:
-            self.label_program_status.set_text("Completed")   
+            #
+            self._update_step_time(0)
+            
+            # Unclick the run button
+            self.button_run.click()
+            
+            # Show the user the program is complete
+            self.label_program_status.set_text("(Completed)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
             
     def increment_setpoint(self, S):
         """
@@ -809,7 +826,7 @@ class auber_syl53x2p(serial_gui_base):
         next_setpoint = self.loaded_program.get_next_setpoint(self.t_step)
     
         if(S != next_setpoint):
-            self.number_setpoint.set_value(next_setpoint)
+            self.number_setpoint.set_value(round(next_setpoint,1))
     
     def get_program_set(self):
         
@@ -1004,11 +1021,27 @@ class program():
             self.t_next    = self.step_time
             
     def get_next_setpoint(self,t):
+        """
+        
+
+        Parameters
+        ----------
+        t : int
+            Time (in seconds) since start of program step.
+
+        Returns
+        -------
+        float
+            The next temperature setpoint.
+
+        """
         if self.get_step_operation() == "Ramp":
-            if t > self.t_next:
-                self.t_next   = self.t_next+self.step_time
+            if t >= self.t_next:
                 self.setpoint = self.setpoint + .1*self.sgn
+                self.t_next   = self.t_next+self.step_time
                 return self.setpoint
+        
+        # Otherwise, just return the current setpoint
         return self.setpoint
     
     def save_program(self):
