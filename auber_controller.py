@@ -478,9 +478,11 @@ class auber_syl53x2p(serial_gui_base):
                 self._update_step(1)
                 self._update_operation(self.step_operation)
                 self._update_step_time(self.step_duration)
+                self._update_progress()
                     
             # Run the loaded program
-            self.loaded_program.run(self.api.get_temperature())
+            self.step_time, self.t_next, self.T_start, self.T_stop = self.loaded_program.run(self.api.get_temperature())
+            self.T_current = self.T_start
             
         else:
             # Reset the "Run" button colors
@@ -621,11 +623,18 @@ class auber_syl53x2p(serial_gui_base):
         if self.button_run.is_checked():
             
             # Update time markers
-            self.dt  = current_time - self.time 
+            
+            # Get the time change since last timer tick
+            dt  = current_time - self.time
+            
+            # Increment the step time counter
+            self.t_step += dt
+            
+            # Save the current time of this timer tick
             self.time = current_time
         
             # Increment the active program
-            self.program_increment(S)
+            self.program_increment(T)
                 
         # Update the GUI
         self.window.process_events()
@@ -691,7 +700,7 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the remaining time in current program step 
         self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.textbox_step_time = self.grid_lower_mid.add(_g.TextBox("0h 0min 0s"),alignment=1).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+        self.textbox_step_time = self.grid_lower_mid.add(_g.TextBox("0h 0min 0s"),alignment=1).set_width(175).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
         # Add tabs to the bottom grid
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
@@ -757,39 +766,95 @@ class auber_syl53x2p(serial_gui_base):
             
             if i < (PROGRAM_STEPS-1): self.tab_program_bot.new_autorow()
     
-    def program_increment(self, S):
+    def program_increment(self, T):
+        """
+
+        Parameters
+        ----------
+        T : float
+            Current temperature.
+
+        """
+        # Ramp operation
+        if(self.step_operation == "Ramp"):
+            
+            self._update_step_time(self.step_duration - self.t_step + self.step_time)
+        
+            # Up ramp
+            if self.T_stop > self.T_start:
+                
+                # Check if we have reached the stop temperature
+                if round(self.T_current,1) < self.T_stop:
                     
-        # Update time since program has started
-        self.t_program +=  self.dt
+                    # Check if we are ready to increment the temperature
+                    if  self.t_step >= self.t_next: 
+                        
+                        # Update time since program has started
+                        self.t_program +=  self.step_time
+                        
+                        # 
+                        self.t_next += self.step_time
+                        
+                        # Increment temperature
+                        self.T_current += 0.1
+                        
+                        # Set the new temperature
+                        self.number_setpoint.set_value(self.T_current)
+                        
+                        # Update step time on the GUI
+                        self._update_step_time(self.step_duration - self.t_next + self.step_time)
+                        
+                        # Update the program progress counter on the GUI
+                        self._update_progress()
+       
+                else:
+                    self.step_increment()
+                    
+             # Down ramp        
+            if self.T_stop < self.T_start:
+                
+                # Check if we have reached the stop temperature
+                if round(self.T_current,1) > self.T_stop:
+                    
+                    if  self.t_step >= self.t_next: 
+                        
+                        # Update time since program has started
+                        self.t_program +=  self.step_time
+                        
+                        #
+                        self.t_next += self.step_time
+                        
+                        # Decrement temperature
+                        self.T_current -= 0.1
+                        
+                        # Set the new temperature
+                        self.number_setpoint.set_value(self.T_current)
+                        
+                        # Update step time on the GUI
+                        self._update_step_time(self.step_duration - self.t_next + self.step_time)
+                        
+                        # Update the program progress counter on the GUI
+                        self._update_progress()
+       
+                else:
+                    self.step_increment()
         
-        # Update time since program step has started
-        self.t_step    += self.dt
+        # Soak operation
+        else:
+            if self.t_step >= self.t_next:
+                self.step_increment()
         
-        #
-        _time_remaining = self.step_duration - self.t_step
-        
-        # Check if the step is still going
-        if  (_time_remaining > 0): 
-            
-            # Update step time
-            self._update_step_time(_time_remaining)
-            
-            #
-            self.increment_setpoint(S)
-            
-            # Update the program progress counter in the GUI
-            self._update_progress()
-        
+    def step_increment(self):
         # Load in the next step if it exists
-        elif self.loaded_program.check_next():
+        if self.loaded_program.check_next():
             
             # Move to the next program step
-            self.loaded_program.increment_step()
-            
+            self.step_time, self.t_next, self.T_start, self.T_stop = self.loaded_program.increment_step(
+                                                            self.api.get_temperature_setpoint())
             # Zero the step time
             self.t_step = 0
         
-            #
+            # Get step parameters 
             self.step_duration = self.loaded_program.get_step_duration()*3600
             self.operation     = self.loaded_program.get_step_operation()
             
@@ -799,7 +864,7 @@ class auber_syl53x2p(serial_gui_base):
             # Update the step time in the GUI
             self._update_step_time(self.step_duration)
             
-            #
+            # Update operation type in the GUI
             self._update_operation(self.operation)
                 
             # Update the program progress counter in the GUI
@@ -815,18 +880,6 @@ class auber_syl53x2p(serial_gui_base):
             # Show the user the program is complete
             self.label_program_status.set_text("(Completed)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
             
-    def increment_setpoint(self, S):
-        """
-
-        Parameters
-        ----------
-        S : float
-            Current Setpoint.
-        """
-        next_setpoint = self.loaded_program.get_next_setpoint(self.t_step)
-    
-        if(S != next_setpoint):
-            self.number_setpoint.set_value(round(next_setpoint,1))
     
     def get_program_set(self):
         
@@ -845,6 +898,7 @@ class auber_syl53x2p(serial_gui_base):
         else:
             try: _os.mkdir(PROGRAM_DIR)
             except: return
+
 
 class program():
     """
@@ -988,7 +1042,7 @@ class program():
         else:
             return False
     
-    def increment_step(self):
+    def increment_step(self, current_setpoint):
         """
         Move to the next program step.
 
@@ -1002,10 +1056,18 @@ class program():
         
         # Calculate temperature ramping parameters
         if self.get_step_operation() == 'Ramp':
-            self.dT        = self.get_step_temperature() - self.setpoint
+            self.dT        = self.get_step_temperature() - current_setpoint
             self.sgn       = 1 if self.dT > 0 else -1
             self.step_time = self.get_step_duration()*3600 / (abs(self.dT) * 10.0)
             self.t_next    = self.step_time
+            
+        else:
+            self.step_time = 0
+            self.t_next    =  self.get_step_duration()*3600 # In seconds 
+            
+        return self.step_time, self.t_next, current_setpoint, self.get_step_temperature()
+            
+        
         
     def run(self, current_temperature):
         """
@@ -1013,36 +1075,17 @@ class program():
         """
         # Calculate temperature ramping parameters
         if self.get_step_operation() == 'Ramp':
-            self.setpoint  = current_temperature
             
-            self.dT        = self.get_step_temperature() - self.setpoint
+            self.dT        = self.get_step_temperature() - current_temperature
             self.sgn       = 1 if self.dT > 0 else -1
             self.step_time = self.get_step_duration()*3600 / (abs(self.dT) * 10.0)
             self.t_next    = self.step_time
+        
+        else:
+            self.step_time = 0
+            self.t_next    =  self.get_step_duration()
             
-    def get_next_setpoint(self,t):
-        """
-        
-
-        Parameters
-        ----------
-        t : int
-            Time (in seconds) since start of program step.
-
-        Returns
-        -------
-        float
-            The next temperature setpoint.
-
-        """
-        if self.get_step_operation() == "Ramp":
-            if t >= self.t_next:
-                self.setpoint = self.setpoint + .1*self.sgn
-                self.t_next   = self.t_next+self.step_time
-                return self.setpoint
-        
-        # Otherwise, just return the current setpoint
-        return self.setpoint
+        return self.step_time, self.t_next, current_temperature, self.get_step_temperature()
     
     def save_program(self):
         """
