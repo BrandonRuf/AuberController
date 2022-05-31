@@ -430,6 +430,10 @@ class auber_syl53x2p(serial_gui_base):
     def _button_run_toggled(self):
         if self.button_run.is_checked():
             
+            # Reload non-custom programs
+            if self.combo_program.get_text() != "Custom":
+                self._combo_program_changed()
+            
             # Turn the "Run" button green to show that the program is running
             self.button_run.set_colors(text = 'limegreen', background='white')
             
@@ -803,15 +807,19 @@ class auber_syl53x2p(serial_gui_base):
                         self.number_setpoint.set_value(self.T_current)
                         
                         # Update step time on the GUI
-                        self._update_step_time(self.step_duration - self.t_next + self.step_time)
-                        
+                        self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
+                                                
                         # Update the program progress counter on the GUI
                         self._update_progress()
                         
+                        # Break
                         return 
        
                 else:
+                    # Goto next step in the program 
                     self.step_increment()
+                    
+                    # Break
                     return
                     
              # Down ramp        
@@ -835,26 +843,34 @@ class auber_syl53x2p(serial_gui_base):
                         self.number_setpoint.set_value(self.T_current)
                         
                         # Update step time on the GUI
-                        self._update_step_time(self.step_duration - self.t_next + self.step_time)
+                        self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
                         
                         # Update the program progress counter on the GUI
                         self._update_progress()
                         
+                        # Break
                         return
        
                 else:
+                    # Goto next step in the program
                     self.step_increment()
+                    
+                    # Break
                     return
         
-            self._update_step_time(self.step_duration - self.t_step)
             
         # Soak operation
         else:
             if self.t_step < self.t_next:
+                # Keep the user in the game
                 self._update_progress(self.t_program +  self.t_step)
+                self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
  
             else:
+                # Update the program time variable with the total soak time
                 self.t_program += self.loaded_program.get_step_duration()*3600
+                
+                # Goto next step in the program
                 self.step_increment()
         
     def step_increment(self):
@@ -1135,5 +1151,6 @@ class program():
         
 if __name__ == '__main__':
     _egg.clear_egg_settings()
-    self = auber_syl53x2p(name = "Oven Controller #1",temperature_limit = 1500)
+    alpha = auber_syl53x2p(name = "Alpha",temperature_limit = 1100)
+    bravo = auber_syl53x2p(name = "Bravo",temperature_limit = 1100)
 
