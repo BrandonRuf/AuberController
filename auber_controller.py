@@ -570,11 +570,10 @@ class auber_syl53x2p(serial_gui_base):
         # Set the temperature setpoint
         self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
 
-    def _update_progress(self, _val = None):
-        if _val == None:
-            self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
-        else:
-            self._textbox_progress.set_value("%.2f %%"%(100*_val/self.loaded_program.get_length()))
+    def _update_progress(self):
+        
+        self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
+
     def _update_step_time(self, t):
         
         # Get number of hours 
@@ -792,7 +791,7 @@ class auber_syl53x2p(serial_gui_base):
                 if round(self.T_current,1) < self.T_stop:
                     
                     # Check if we are ready to increment the temperature
-                    if  self.t_step >= self.t_next: 
+                    while self.t_step >= self.t_next: 
                         
                         # Update time since program has started
                         self.t_program +=  self.step_time
@@ -806,14 +805,16 @@ class auber_syl53x2p(serial_gui_base):
                         # Set the new temperature
                         self.number_setpoint.set_value(self.T_current)
                         
-                        # Update step time on the GUI
-                        self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
-                                                
-                        # Update the program progress counter on the GUI
-                        self._update_progress()
-                        
-                        # Break
-                        return 
+                        if(round(self.T_current,1) >= self.T_stop): break
+                                  
+                    # Update step time on the GUI
+                    self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
+                    
+                    # Update the program progress counter on the GUI
+                    self._update_progress()
+                    
+                    # Break
+                    return 
        
                 else:
                     # Goto next step in the program 
@@ -828,7 +829,7 @@ class auber_syl53x2p(serial_gui_base):
                 # Check if we have reached the stop temperature
                 if round(self.T_current,1) > self.T_stop:
                     
-                    if  self.t_step >= self.t_next: 
+                    while self.t_step >= self.t_next: 
                         
                         # Update time since program has started
                         self.t_program +=  self.step_time
@@ -842,15 +843,18 @@ class auber_syl53x2p(serial_gui_base):
                         # Set the new temperature
                         self.number_setpoint.set_value(self.T_current)
                         
-                        # Update step time on the GUI
-                        self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
+                        if(round(self.T_current,1) <= self.T_stop): break
                         
-                        # Update the program progress counter on the GUI
-                        self._update_progress()
+
+                    # Update step time on the GUI
+                    self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
                         
-                        # Break
-                        return
-       
+                    # Update the program progress counter on the GUI
+                    self._update_progress()
+                        
+                    # Break
+                    return
+                
                 else:
                     # Goto next step in the program
                     self.step_increment()
@@ -862,6 +866,7 @@ class auber_syl53x2p(serial_gui_base):
         # Soak operation
         else:
             if self.t_step < self.t_next:
+                
                 # Keep the user in the game
                 self._update_progress(self.t_program +  self.t_step)
                 self._update_step_time(self.step_duration - self.t_step if self.step_duration - self.t_step > 0 else 0)
