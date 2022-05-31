@@ -1,7 +1,10 @@
 """
-A Graphical interface for controlling the Auber SYL53X2P.
+A graphical user interface for controlling the Auber SYL53X2P temperature controller,
+encorporating creation of complex (up to 10 ramping/soaking steps) programs. 
  
 Written by Brandon Ruffolo (2022).
+See https://github.com/BrandonRuf/AuberController for updated versions of this software.
+Email brandon.ruffolo@mcgill.ca with any software issues/bugs or suggestions.
 
 """
 
@@ -343,7 +346,9 @@ class auber_syl53x2p(serial_gui_base):
      
         
     def _combo_program_changed(self):
-        "Called when the program selector tab is changed"
+        """
+        Called when the program selector tab is changed
+        """
         
         # Get the program name
         _program_name = self.combo_program.get_text()
@@ -428,6 +433,9 @@ class auber_syl53x2p(serial_gui_base):
             self.button_save.disable()
     
     def _button_run_toggled(self):
+        """
+        Called when the run button is toggled.
+        """
         if self.button_run.is_checked():
             
             # Reload non-custom programs
@@ -500,7 +508,11 @@ class auber_syl53x2p(serial_gui_base):
             
             self.label_program_status.set_text("(Idle)").set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
     
+    
     def _button_save_toggled(self):
+        """
+        Called when the save button is toggled.
+        """
         
         # Create a new program
         self.loaded_program = program("Custom", None)
@@ -570,9 +582,11 @@ class auber_syl53x2p(serial_gui_base):
         # Set the temperature setpoint
         self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
 
-    def _update_progress(self):
-        
-        self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
+    def _update_progress(self, _val = None):
+        if _val == None:
+            self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
+        else:
+            self._textbox_progress.set_value("%.2f %%"%(100*_val/self.loaded_program.get_length()))
 
     def _update_step_time(self, t):
         
@@ -645,6 +659,15 @@ class auber_syl53x2p(serial_gui_base):
         self.window.process_events()
     
     def gui_components(self,name):
+        """
+        Populates the GUI.
+
+        Parameters
+        ----------
+        name : str
+            GUI window name.
+            
+        """
         
         # Upper middle of GUI - Basic numerical data readout (Temperature)
         self.grid_upper_mid = self.window.place_object(_g.GridLayout(margins=False), alignment=1,column_span=1)
@@ -843,6 +866,7 @@ class auber_syl53x2p(serial_gui_base):
                         # Set the new temperature
                         self.number_setpoint.set_value(self.T_current)
                         
+                        # Break the loop if we reach stopping temperature
                         if(round(self.T_current,1) <= self.T_stop): break
                         
 
@@ -879,6 +903,7 @@ class auber_syl53x2p(serial_gui_base):
                 self.step_increment()
         
     def step_increment(self):
+        
         # Load in the next step if it exists
         if self.loaded_program.check_next():
             
@@ -914,7 +939,6 @@ class auber_syl53x2p(serial_gui_base):
             # Show the user the program is complete
             self.label_program_status.set_text("(Completed)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
             
-    
     def get_program_set(self):
         
         if PROGRAM_DIR in _os.listdir():
