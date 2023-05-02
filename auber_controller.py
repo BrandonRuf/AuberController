@@ -610,6 +610,8 @@ class auber_syl53x2p(serial_gui_base):
         else:
             self.label_program_status.set_text("(Disconnected)")
             
+            if self.button_run.is_checked(): self.button_run.click()
+            
             # Disable the setpoint NumberBox
             self.number_setpoint.disable()
             
@@ -800,16 +802,16 @@ class auber_syl53x2p(serial_gui_base):
 
         self.number_setpoint = self.grid_upper_mid.add(_g.NumberBox(
             -273.16, bounds=(-273.16, self._temperature_limit), suffix='°C',
-            signal_changed=self._number_setpoint_changed)
+            signal_changed=self._number_setpoint_changed, tip='Current temperature setpoint.')
             ).set_width(175).set_style('font-size: 17pt; font-weight: bold; color: cyan').disable()
         
         # Label and TextBox for displaying the current loaded program 
         self.grid_lower_mid.add(_g.Label('Program:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: lavender')
-        self.textbox_program = self.grid_lower_mid.add(_g.TextBox('Custom'),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
+        self.textbox_program = self.grid_lower_mid.add(_g.TextBox('Custom', tip='Name of the currently selected program.'),alignment=0).set_width(150).set_style('font-size: 14pt; font-weight: bold; color: lavender').disable()
         
         # Label and TextBox for displaying the progression of the current program (in percent)
         self.grid_lower_mid.add(_g.Label('Progress:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: gold')
-        self._textbox_progress = self.grid_lower_mid.add(_g.TextBox("0%"),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
+        self._textbox_progress = self.grid_lower_mid.add(_g.TextBox("0%", tip='Progress of completion of the currently selected program.'),alignment=1).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: gold').disable()
         
         self.label_program_status = self.grid_lower_mid.add(_g.Label("(Disconnected)"),alignment=1,column_span=2).set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
         
@@ -818,15 +820,15 @@ class auber_syl53x2p(serial_gui_base):
         
         # Label and TextBox for displaying the current program step 
         self.grid_lower_mid.add(_g.Label('Step:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: pink')
-        self.textbox_step = self.grid_lower_mid.add(_g.TextBox("1/10"),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
+        self.textbox_step = self.grid_lower_mid.add(_g.TextBox("1/10", tip='What step you are on in the current program.'),alignment=0).set_width(70).set_style('font-size: 14pt; font-weight: bold; color: pink').disable()
         
         # Label and TextBox for displaying the current program operation 
         self.grid_lower_mid.add(_g.Label('Operation:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise')
-        self.textbox_operation = self.grid_lower_mid.add(_g.TextBox("Hold"),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
+        self.textbox_operation = self.grid_lower_mid.add(_g.TextBox("Hold", tip='Operation being preformed at the current program step (Ramp/Soak).'),alignment=0).set_width(100).set_style('font-size: 14pt; font-weight: bold; color: paleturquoise').disable()
         
         # Label and TextBox for displaying the remaining time in current program step 
         self.grid_lower_mid.add(_g.Label('Time:'),alignment=1).set_style('font-size: 14pt; font-weight: bold; color: coral')
-        self.textbox_step_time = self.grid_lower_mid.add(_g.TextBox("0h 0min 0s"),alignment=1).set_width(175).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
+        self.textbox_step_time = self.grid_lower_mid.add(_g.TextBox("0h 0min 0s", tip='Remaining time for the current program step.'),alignment=1).set_width(175).set_style('font-size: 14pt; font-weight: bold; color: coral').disable()
         
         # Add tabs to the bottom grid
         self.tabs = self.grid_bot.add(_g.TabArea(self.name+'.tabs'), alignment=0,column_span=10)
@@ -841,7 +843,7 @@ class auber_syl53x2p(serial_gui_base):
             delimiter=',', show_logger=True), alignment=0, column_span=10)
         
         # Timer for collecting data
-        self.timer = _g.Timer(interval_ms=1000, single_shot=False)
+        self.timer = _g.Timer(interval_ms=250, single_shot=False)
         self.timer.signal_tick.connect(self._timer_tick)
 
         # Bottom log file controls
