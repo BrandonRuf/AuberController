@@ -13,11 +13,14 @@ import spinmob       as _s
 import time          as _time
 import os            as _os
 import serial        as _serial
+import ctypes
 
 _g = _egg.gui
 
-from serial.tools.list_ports import comports as _comports
-from auber_controller_api    import auber_syl53x2p_api
+from serial.tools.list_ports  import comports as _comports
+from PyQt5                    import QtGui, QtWidgets, QtCore
+from auber_controller_api     import auber_syl53x2p_api
+from auber_controller_program import program
 
 # GUI settings
 _s.settings['dark_theme_qt'] = True
@@ -200,8 +203,8 @@ class serial_gui_base(_g.BaseObject):
                     baudrate=int(self.combo_baudrates.get_text()),
                     timeout=self.number_timeout.get_value())
 
-            # Record the time if it's not already there.
-            if self.t0 is None: self.t0 = _time.time()
+            # Record the time
+            self.t0 = _time.time()
 
             # Enable the grid
             self.grid_bot.enable()
@@ -320,11 +323,18 @@ class auber_syl53x2p(serial_gui_base):
 
         # Remember the limit
         self._temperature_limit = temperature_limit
+        
+        # Create unique taskbar button for the controller
+        try: ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID( name )
+        except Exception: 
+                pass
 
         # Run the base class stuff, which shows the window at the end.
         serial_gui_base.__init__(self, api_class=auber_syl53x2p_api, name=name, show=False, window_size=window_size)
         
         self.window.set_size([0,0])
+
+        self.window._window.setWindowIcon(QtGui.QIcon('Images/'+name))
         
         # Dictionary holding the full set of programs
         self.program_set = dict()
@@ -338,7 +348,7 @@ class auber_syl53x2p(serial_gui_base):
         # Build the GUI
         self.gui_components(name)
         
-        #
+        # Set the loaded program to custom (user supplied by default)
         self.loaded_program = program("Custom", None)
         
         # Finally show it.
@@ -347,7 +357,7 @@ class auber_syl53x2p(serial_gui_base):
         
     def _combo_program_changed(self):
         """
-        Called when the program selector tab is changed
+        Called when the program selector tab is changed.
         """
         
         # Get the program name
@@ -410,7 +420,8 @@ class auber_syl53x2p(serial_gui_base):
             self._update_step(1)
             self._update_operation(self.step_operation)
             self._update_step_time(self.step_duration)
-              
+            
+            
     def _check_program_validity(self):
         """
         Enables the run button if a valid program is present.
@@ -432,11 +443,16 @@ class auber_syl53x2p(serial_gui_base):
             self.button_run .disable()
             self.button_save.disable()
     
+    
     def _button_run_toggled(self):
         """
         Called when the run button is toggled.
         """
+        
         if self.button_run.is_checked():
+            
+            # Clear the temperature plot 
+            self.plot.clear()
             
             # Reload non-custom programs
             if self.combo_program.get_text() != "Custom":
@@ -453,6 +469,7 @@ class auber_syl53x2p(serial_gui_base):
             
             # Time of program start
             self.time = _time.time()
+            self.t0   = self.time
             
             # Define program run time - time the current program has been running
             self.t_program = 0
@@ -460,14 +477,16 @@ class auber_syl53x2p(serial_gui_base):
             # Define program step time - time the current program STEP has been running
             self.t_step    = 0 
             
-    
             # Update status label
             self.label_program_status.set_text("(Running)").set_style('font-size: 17pt; font-weight: bold; color: '+('mediumspringgreen'))
             
+            # If the program is new (custom), set it up
             if self.textbox_program.get_text() == "Custom":
                 
+                # Create new program
                 self.loaded_program = program("Custom", None)
                 
+                # Upload all program steps
                 for i in range(PROGRAM_STEPS):
                     operation = self.program[i]['operation'].get_value()
                     
@@ -482,7 +501,8 @@ class auber_syl53x2p(serial_gui_base):
                         
                         self.loaded_program.add_step(new_step)
                     else: break
-                            # Save first step parameters
+                
+                # Save first step parameters
                 self.step_duration  = self.loaded_program.get_step_duration ()*3600
                 self.step_operation = self.loaded_program.get_step_operation()
                 
@@ -506,12 +526,16 @@ class auber_syl53x2p(serial_gui_base):
             # Re-enable setpoint numberbox
             self.number_setpoint.enable()
             
+            # Update status to show controller is Idle
             self.label_program_status.set_text("(Idle)").set_style('font-size: 17pt; font-weight: bold; color: '+('grey'))
     
     
     def _button_save_toggled(self):
         """
         Called when the save button is toggled.
+        
+        This will save an entered program outside of python, 
+        so that it will be availible every time the controller is opened.
         """
         
         # Create a new program
@@ -544,51 +568,88 @@ class auber_syl53x2p(serial_gui_base):
         
         # Set the program selector to our new program
         self.combo_program.set_index(index = list(self.program_set.keys()).index(name)+1 )
-        return 
+        
         
     def _after_button_connect_toggled(self):
         """
         Called after the connection or disconnection routine.
         """
         if self.button_connect.is_checked():
-    
-            # Get the setpoint
+            
             try:
+                # Get the setpoint
                 self.number_setpoint.set_value(self.api.get_temperature_setpoint(), block_signals=True)
+                
+                # Enable the setpoint NumberBox
                 self.number_setpoint.enable()
+                
+                # Clear the plot (in case anything was previously there)
+                self.plot.clear()
+                
+                # Start the timer
                 self.timer.start()
                 
                 # Bring the hidden program tab into the GUI
                 if 1 in self.tabs.popped_tabs: self.tabs.unpop_tab(1)
                 
+                # Update the program status
                 self.label_program_status.set_text("(Idle)")
                 
+            # Failure to retrieve setpoint
             except:
                 self.number_setpoint.set_value(0)
+                
+                # Disconnect
                 self.button_connect.set_checked(False)
+                
+                # Update the program status
                 self.label_program_status.set_text("(Error)").set_style('font-size: 17pt; font-weight: bold; color: '+('orangered'))
                 #self.label_status.set_text('Could not get temperature.').set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
         
         # Disconnected
         else:
             self.label_program_status.set_text("(Disconnected)")
+            
+            # Disable the setpoint NumberBox
             self.number_setpoint.disable()
+            
+            # Stop the timer
             self.timer.stop()
+    
     
     def _number_setpoint_changed(self, *a):
         """
-        Called when someone changes the number.
+        Called when someone changes the temperature setpoint (when a program is not running).
         """
-        # Set the temperature setpoint
+        # Set the temperature setpoint on the Auber
         self.api.set_temperature_setpoint(self.number_setpoint.get_value(), self._temperature_limit)
 
+
     def _update_progress(self, _val = None):
+        """
+        Updates the progress counter in the GUI.
+
+        Parameters
+        ----------
+        _val : float, optional
+            The default is None.
+
+        """
         if _val == None:
             self._textbox_progress.set_value("%.2f %%"%(100*self.t_program/self.loaded_program.get_length()))
         else:
             self._textbox_progress.set_value("%.2f %%"%(100*_val/self.loaded_program.get_length()))
 
+
     def _update_step_time(self, t):
+        """
+        Updates the program step time in the GUI.
+
+        Parameters
+        ----------
+        t : float
+            Time remaining in the current program step.
+        """
         
         # Get number of hours 
         hours, remainder = divmod(t,3600)
@@ -599,30 +660,66 @@ class auber_syl53x2p(serial_gui_base):
         # Update the step time textbox 
         self.textbox_step_time.set_text("%dh %dmin %ds"%(hours, minutes, seconds))
 
+
     def _update_step(self, n):
+        """
+        Updates the step counter in the GUI.
+
+        Parameters
+        ----------
+        n : int
+            Current program step.
+        """
         self.textbox_step.set_value("%d/%d"%(n,self.loaded_program.get_size()) )
     
+    
     def _update_operation(self, _operation):
+        """
+        Updates the program operation in the GUI.
+
+        Parameters
+        ----------
+        _operation : str
+            Program operation (Ramp or Soak).
+        """
         self.textbox_operation.set_value(_operation)
         
+        
     def _update_program(self, name):
+        """
+        Updates the displayed program name in the GUI.
+
+        Parameters
+        ----------
+        name : str
+            Program name.
+        """
         self.textbox_program.set_value(name)
+    
     
     def _update_status(self):
         return
     
+    
     def _update_combo_program(self):
+        """
+        Updates the list of availible programs in the program tab.
+        """
         for i in range(1,len(self.combo_program.get_all_items())):
             self.combo_program.remove_item(1)
             
         for program in self.program_set:
             self.combo_program.add_item(program)
     
+    
     def _timer_tick(self, *a):
         """
-        Called whenever the timer ticks. Updates the plot, saves the latest data,
+        Called whenever the timer ticks. 
+        
+        Updates the plot, saves the latest data,
         and advances the program (if one is running).
         """
+        
         current_time = _time.time()
         
         # Get the time, temperature, and setpoint
@@ -641,7 +738,7 @@ class auber_syl53x2p(serial_gui_base):
         # If a program is running
         if self.button_run.is_checked():
             
-            # Update time markers
+            ## Update time markers ##
             
             # Get the time change since last timer tick
             dt  = current_time - self.time
@@ -657,6 +754,7 @@ class auber_syl53x2p(serial_gui_base):
                 
         # Update the GUI
         self.window.process_events()
+    
     
     def gui_components(self,name):
         """
@@ -794,6 +892,7 @@ class auber_syl53x2p(serial_gui_base):
             
             if i < (PROGRAM_STEPS-1): self.tab_program_bot.new_autorow()
     
+    
     def program_increment(self, T):
         """
 
@@ -901,6 +1000,7 @@ class auber_syl53x2p(serial_gui_base):
                 
                 # Goto next step in the program
                 self.step_increment()
+      
         
     def step_increment(self):
         
@@ -956,226 +1056,6 @@ class auber_syl53x2p(serial_gui_base):
         else:
             try: _os.mkdir(PROGRAM_DIR)
             except: return
-
-
-class program():
-    """
-    
-    """
-    
-    def __init__(self, name, program_set):
-        
-        # Remember the name
-        self.name  = name
-        
-        # If not a custom program, grab all the details
-        if name != 'Custom':
-            
-            # Get the program steps
-            self.steps = program_set[name]
-            
-            # Load the first step
-            self.loaded_step = self.steps[0]
-            
-            # Remeber step index
-            self.loaded_step_index = 0
-            
-            # Remeber number of steps in the program
-            self.size = len(self.steps)
-            
-            # Calculate the total program length (in seconds)
-            self.length = 0
-            for i in range(self.size):
-                # Add the length of this step to the total program length
-                self.length += self.steps[i][2]*3600
-        else:
-            self.steps = []
-
-    def get_name(self):
-        """
-        Get the program name.
-        """
-        return self.name
-    
-    def get_step_operation(self):
-        """
-        Get the operation of the current step.
-
-        """
-        return self.loaded_step[0]
-    
-    def get_step_temperature(self):
-        """
-        Get the set temperature of the current step.
-        """
-        return self.loaded_step[1]
-    
-    def get_step_duration(self):
-        """
-        Get the duration of the current step.
-        """
-        return self.loaded_step[2]
-    
-    def get_size(self):
-        """
-        Get the program size (number of steps).
-        """
-        return self.size
-        
-    def get_step(self,i):
-        """
-        Get the ith step of the program.
-
-        Parameters
-        ----------
-        i : int
-            Step index.
-
-        Returns None if no step of the requested index exists.
-
-        """
-        if i < self.size:
-            return self.steps[i]
-        else:
-            return None
-    
-    def get_length(self):
-        """
-        Get the full program duration (duration of all combined steps)
-        in seconds.
-        """
-        return self.length  
-    
-    def get_step_index(self):
-        """
-        Get the current step index.
-        """
-        return self.loaded_step_index
-    
-    def add_step(self, new_step):
-        """
-        Add a new step to the program.
-
-        Parameters
-        ----------
-        new_step : list
-            List containing step information in the order
-            (operation, temperature, duration).
-        """
-        
-        # Append the new step to the step list
-        self.steps.append(new_step)
-        
-        # If this is the first added step
-        if len(self.steps) == 1:
-            
-            # Load the first step
-            self.loaded_step = self.steps[0]
-            
-            # Remeber step index
-            self.loaded_step_index = 0
-            
-        # Update number of steps in the program
-        self.size = len(self.steps)
-            
-        # Update the total program length (in seconds)
-        self.length = 0
-        for i in range(self.size):
-            # Add the length of this step to the total program length
-            self.length += self.steps[i][2]*3600
-            
-    def check_next(self):
-        """
-        Check if there is a next step 
-        (following the current loaded step) to the program.
-
-        Returns
-        -------
-        bool
-            True if a next step exists, False otherwise.
-
-        """
-        if self.loaded_step_index < self.size - 1:
-            return True
-        else:
-            return False
-    
-    def increment_step(self, current_setpoint):
-        """
-        Move to the next program step.
-
-        """
-        
-        # Load in the nxt program step.
-        self.loaded_step = self.steps[self.loaded_step_index+1]
-        
-        # Update the step index.
-        self.loaded_step_index += 1
-        
-        # Calculate temperature ramping parameters
-        if self.get_step_operation() == 'Ramp':
-            self.dT        = self.get_step_temperature() - current_setpoint
-            self.sgn       = 1 if self.dT > 0 else -1
-            self.step_time = self.get_step_duration()*3600 / (abs(self.dT) * 10.0)
-            self.t_next    = self.step_time
-            
-        else:
-            self.step_time = 0
-            self.t_next    =  self.get_step_duration()*3600 # In seconds 
-            
-        return self.step_time, self.t_next, current_setpoint, self.get_step_temperature()
-            
-        
-        
-    def run(self, current_temperature):
-        """
-        Run the program.
-        """
-        # Calculate temperature ramping parameters
-        if self.get_step_operation() == 'Ramp':
-            
-            self.dT        = self.get_step_temperature() - current_temperature
-            self.sgn       = 1 if self.dT > 0 else -1
-            self.step_time = self.get_step_duration()*3600 / (abs(self.dT) * 10.0)
-            self.t_next    = self.step_time
-        
-        else:
-            self.step_time = 0
-            self.t_next    =  self.get_step_duration()*3600 # In seconds 
-            
-        return self.step_time, self.t_next, current_temperature, self.get_step_temperature()
-    
-    def save_program(self):
-        """
-        Save the program to the PROGRAM_DIR directory.
-
-        """
-        
-        # Create a spinmob databox to hold the program step data
-        s = _s.data.databox()
-        
-        # Get the name of the new program via save dialog box.
-        result = _s._qtw.QFileDialog.getSaveFileName(directory=_os.getcwd()+'/'+PROGRAM_DIR)
-        self.name = result[0].split('/')[-1]
-        
-        # Add a name header to the databox
-        s.h(name = self.name)
-
-        # Add the program steps as headers to the databox
-        for i in range(0,self.size):
-            
-            # Insert filled steps
-            s.insert_header('op%d'%i, self.steps[i])
-            
-        for j in range(self.size,PROGRAM_STEPS):
-            
-            # Insert empty steps
-            s.insert_header('op%d'%j, '')
-            
-        # Save the file.
-        s.save_file(PROGRAM_DIR+'/'+result[0].split('/')[-1])
-
-        return self.name
             
         
 if __name__ == '__main__':
