@@ -29,7 +29,7 @@ class auber_syl53x2p_api():
 
         # Check for installed libraries
         if not _mp._minimalmodbus or not _mp._serial:
-            _s._warn('You need to install pyserial and minimalmodbus to use the Auber SYL-53X2P.')
+            print('You need to install pyserial and minimalmodbus to use the Auber SYL-53X2P.')
             self.modbus = None
             self.simulation_mode = True
 

@@ -13,12 +13,10 @@ import spinmob       as _s
 import time          as _time
 import os            as _os
 import serial        as _serial
-import ctypes
 
 _g = _egg.gui
 
 from serial.tools.list_ports  import comports as _comports
-from PyQt5                    import QtGui, QtWidgets, QtCore
 from auber_controller_api     import auber_syl53x2p_api
 from auber_controller_program import program
 
@@ -160,18 +158,13 @@ class serial_gui_base(_g.BaseObject):
                  
             self._ports = [] # Actual port names for connecting
             ports       = [] # Pretty port names for combo box
-                
-            default_port = 0
-             
+                             
             # Get all the available ports
             if _comports:
                 for inx, p in enumerate(_comports()):
                     self._ports.append(p.device)
                     ports      .append(p.description)
-                    
-                    if 'Arduino' in p.description:
-                        default_port = inx
-                        
+    
             # Append simulation port
             ports      .append('Simulation')
             self._ports.append('Simulation')
@@ -185,7 +178,7 @@ class serial_gui_base(_g.BaseObject):
                 self.combo_ports.add_item(item)
              
             # Set the new default port
-            self.combo_ports.set_index(default_port)
+            self.combo_ports.set_index(0)
     
     def _button_connect_toggled(self, *a):
         """
@@ -216,8 +209,6 @@ class serial_gui_base(_g.BaseObject):
             
             
             if self.api.simulation_mode:
-                #self.label_status.set_text('*** Simulation Mode ***')
-                #self.label_status.set_colors('pink' if _s.settings['dark_theme_qt'] else 'red')
                 self.combo_ports.set_value(len(self._ports)-2)
                 self.button_connect.set_text("Simulation").set_colors(background='pink')
             else:
@@ -226,7 +217,6 @@ class serial_gui_base(_g.BaseObject):
         # Otherwise, shut it down
         else:
             self.api.disconnect()
-            #self.label_status.set_text('')
             self.button_connect.set_colors()
             self.grid_bot.disable()
 
@@ -323,18 +313,11 @@ class auber_syl53x2p(serial_gui_base):
 
         # Remember the limit
         self._temperature_limit = temperature_limit
-        
-        # Create unique taskbar button for the controller
-        try: ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID( name )
-        except Exception: 
-                pass
 
         # Run the base class stuff, which shows the window at the end.
         serial_gui_base.__init__(self, api_class=auber_syl53x2p_api, name=name, show=False, window_size=window_size)
         
         self.window.set_size([0,0])
-
-        self.window._window.setWindowIcon(QtGui.QIcon('Images/'+name))
         
         # Dictionary holding the full set of programs
         self.program_set = dict()
@@ -346,7 +329,7 @@ class auber_syl53x2p(serial_gui_base):
         self.program = dict()
         
         # Build the GUI
-        self.gui_components(name)
+        self.setup_gui_components(name)
         
         # Set the loaded program to custom (user supplied by default)
         self.loaded_program = program("Custom", None)
@@ -731,7 +714,7 @@ class auber_syl53x2p(serial_gui_base):
         P = self.api.get_main_output_power()    
         
         # Append this to the databox
-        self.plot.append_row([t, T, S, P], ckeys=['Time (s)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
+        self.plot.append_row([t/3600, T, S, P], ckeys=['Time (h)', 'Temperature (C)', 'Setpoint (C)', 'Power (%)'])
         self.plot.plot()
 
         # Update the temperature data box
@@ -758,7 +741,7 @@ class auber_syl53x2p(serial_gui_base):
         self.window.process_events()
     
     
-    def gui_components(self,name):
+    def setup_gui_components(self,name):
         """
         Populates the GUI.
 
